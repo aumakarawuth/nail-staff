@@ -43,22 +43,65 @@ const $ = id => document.getElementById(id);
 /* ══════════════════════════════════════════════
    INIT
 ══════════════════════════════════════════════ */
+
+const LIFF_ID = '2009606226-SB5pY3tO'; // ← ใส่ LIFF ID ที่ได้
+
+
 window.addEventListener('DOMContentLoaded', async () => {
   registerSW();
   setupOfflineDetect();
   setupInstallPrompt();
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const lineCode  = urlParams.get('code');
-  const lineState = urlParams.get('state');
-
-  if (lineCode) {
-    window.history.replaceState({}, document.title, window.location.pathname);
-    await handleLineCallback(lineCode, lineState);
-  } else {
-    checkLogin();
+  // ตรวจ session เดิมก่อน
+  const savedUser = localStorage.getItem('nk_staff_userId');
+  const savedName = localStorage.getItem('nk_staff_name');
+  if (savedUser && savedName) {
+    state.userId    = savedUser;
+    state.staffName = savedName;
+    state.picture   = localStorage.getItem('nk_staff_picture') || '';
+    afterLogin();
+    return;
   }
+
+  // ยังไม่ login → init LIFF
+  showLoginScreen();
 });
+
+async function loginWithLine() {
+  try {
+    await liff.init({ liffId: LIFF_ID });
+
+    if (!liff.isLoggedIn()) {
+      // บน PWA standalone จะไม่ redirect ออก — เปิด LINE Login ใน popup แทน
+      liff.login();
+      return;
+    }
+
+    // ได้ login แล้ว → ดึง profile
+    $('loading-screen').classList.remove('out');
+    $('loading-screen').querySelector('.load-sub').textContent = 'กำลังเข้าสู่ระบบ...';
+
+    const profile = await liff.getProfile();
+
+    const verifyResult = await api_verifyStaff(profile.userId, profile.displayName);
+    if (verifyResult.ok === false) throw new Error(verifyResult.error || 'ไม่พบบัญชีพนักงาน');
+
+    const displayName = verifyResult.staffName || profile.displayName;
+    localStorage.setItem('nk_staff_userId',  profile.userId);
+    localStorage.setItem('nk_staff_name',    displayName);
+    localStorage.setItem('nk_staff_picture', profile.pictureUrl || '');
+
+    state.userId    = profile.userId;
+    state.staffName = displayName;
+    state.picture   = profile.pictureUrl || '';
+
+    afterLogin();
+
+  } catch (err) {
+    $('loading-screen').classList.add('out');
+    showToast('❌ ' + err.message, 'error');
+  }
+}
 
 function registerSW() {
   if ('serviceWorker' in navigator) {
