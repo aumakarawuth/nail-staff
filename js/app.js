@@ -30,6 +30,14 @@ const PAYMENT_LIST = [
   { id: 'Credit', label: '💳 รูด' },
 ];
 
+/* ── LINE LOGIN CONFIG ──
+   กรอก LINE_CHANNEL_ID จาก LINE Developers Console
+   Callback URL ต้องลงทะเบียนใน LINE Login channel:
+   https://aumakarawuth.github.io/nail-staff/
+─────────────────────────────────────────────── */
+const LINE_CHANNEL_ID = '2009606226'; // ← เปลี่ยนตรงนี้
+const LINE_REDIRECT_URI = 'https://aumakarawuth.github.io/nail-staff/';
+
 /* ── STATE ── */
 const state = {
   userId:    null,
@@ -37,7 +45,7 @@ const state = {
   page:      'home',
   todayRecs: [],
   config:    {},
-  member:    null,        // สมาชิกที่กำลังค้นหา
+  member:    null,
   selectedPayment: 'Cash',
   deferredInstallPrompt: null,
 };
@@ -52,26 +60,106 @@ window.addEventListener('DOMContentLoaded', () => {
   registerSW();
   setupOfflineDetect();
   setupInstallPrompt();
-  checkLogin();
+
+  // ตรวจว่า LINE redirect กลับมาพร้อม ?code=
+  const urlParams = new URLSearchParams(window.location.search);
+  const lineCode  = urlParams.get('code');
+  const lineState = urlParams.get('state');
+
+  if (lineCode) {
+    // ล้าง ?code= ออกจาก URL ก่อน (ไม่อยากให้ user เห็นหรือ reload แล้วติด)
+    window.history.replaceState({}, document.title, window.location.pathname);
+    handleLineCallback(lineCode, lineState);
+  } else {
+    checkLogin();
+  }
 });
 
 /* ── Service Worker ── */
 function registerSW() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(err => {
+    navigator.serviceWorker.register('sw.js').catch(err => {
       console.warn('SW registration failed:', err);
     });
   }
 }
 
+/* ══════════════════════════════════════════════
+   LINE LOGIN FLOW
+══════════════════════════════════════════════ */
+
+/** สร้าง state สุ่มเพื่อป้องกัน CSRF */
+function generateLineState() {
+  const s = Math.random().toString(36).substring(2, 15);
+  sessionStorage.setItem('line_oauth_state', s);
+  return s;
+}
+
+/** redirect ไปหน้า LINE Login */
+function loginWithLine() {
+  const oauthState = generateLineState();
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id:     LINE_CHANNEL_ID,
+    redirect_uri:  LINE_REDIRECT_URI,
+    state:         oauthState,
+    scope:         'profile',
+    bot_prompt:    'normal',  // ให้ add friend ด้วย (optional — ลบออกได้)
+  });
+  window.location.href = `https://access.line.me/oauth2/v2.1/authorize?${params}`;
+}
+
+/** รับ callback จาก LINE — ส่ง code ไปให้ GAS แลก token + profile */
+async function handleLineCallback(code, returnedState) {
+  // ตรวจ state
+  const savedState = sessionStorage.getItem('line_oauth_state');
+  sessionStorage.removeItem('line_oauth_state');
+  if (savedState && returnedState && savedState !== returnedState) {
+    showLoginScreen();
+    showToast('⚠️ OAuth state ไม่ตรง กรุณาลองใหม่', 'error');
+    return;
+  }
+
+  // แสดง loading screen ระหว่างรอ
+  $('loading-screen').classList.remove('out');
+  $('loading-screen').querySelector('.load-sub').textContent = 'กำลังยืนยันตัวตน...';
+
+  try {
+    // GAS จะแลก code → access_token → ดึง LINE profile
+    const result = await api_lineLogin(code, LINE_REDIRECT_URI);
+
+    if (!result || result.ok === false) {
+      throw new Error(result?.error || 'ไม่สามารถเข้าสู่ระบบได้');
+    }
+
+    // บันทึก session
+    localStorage.setItem('nk_staff_userId', result.userId);
+    localStorage.setItem('nk_staff_name',   result.displayName);
+    localStorage.setItem('nk_staff_picture', result.pictureUrl || '');
+
+    state.userId    = result.userId;
+    state.staffName = result.displayName;
+    state.picture   = result.pictureUrl || '';
+
+    afterLogin();
+
+  } catch (err) {
+    $('loading-screen').classList.add('out');
+    showLoginScreen();
+    showToast('❌ ' + (err.message || 'เข้าสู่ระบบไม่สำเร็จ'), 'error');
+  }
+}
+
 /* ── Login check ── */
 function checkLogin() {
-  const savedUser = localStorage.getItem('nk_staff_userId');
-  const savedName = localStorage.getItem('nk_staff_name');
+  const savedUser    = localStorage.getItem('nk_staff_userId');
+  const savedName    = localStorage.getItem('nk_staff_name');
+  const savedPicture = localStorage.getItem('nk_staff_picture');
 
   if (savedUser && savedName) {
     state.userId    = savedUser;
     state.staffName = savedName;
+    state.picture   = savedPicture || '';
     afterLogin();
   } else {
     showLoginScreen();
@@ -88,28 +176,26 @@ function renderLoginForm() {
   $('login-screen').innerHTML = `
     <div class="login-logo">💅 Nail Kloset</div>
     <div class="login-sub">Staff Portal</div>
+
     <div class="login-card">
-      <label class="login-label">ชื่อพนักงาน (ชื่อที่ลงทะเบียนไว้)</label>
-      <input class="login-input" id="li-name" type="text"
-        placeholder="เช่น Alex" autocomplete="off">
-      <label class="login-label">รหัสพนักงาน (LINE UserID)</label>
-      <input class="login-input" id="li-userid" type="text"
-        placeholder="U…" autocomplete="off">
-      <button class="btn-primary" onclick="doLogin()">เข้าสู่ระบบ</button>
+      <div class="login-desc">
+        เข้าสู่ระบบด้วยบัญชี LINE ของคุณ<br>
+        <small>ระบบจะดึงชื่อและ ID จาก LINE อัตโนมัติ</small>
+      </div>
+      <button class="btn-line" id="btn-line-login" onclick="loginWithLine()">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <rect width="24" height="24" rx="6" fill="#06C755"/>
+          <path d="M20 10.5C20 6.9 16.4 4 12 4C7.6 4 4 6.9 4 10.5C4 13.7 6.8 16.4 10.7 17.1L11.5 17.9L11.5 19.4C11.5 19.7 11.8 19.9 12.1 19.8L13.9 18.9C17.4 18.1 20 14.6 20 10.5Z" fill="white"/>
+          <path d="M9.5 11.5H8.5V9.5H9.5V11.5ZM12.5 11.5H11.5V9.5H12.5V11.5ZM15.5 11.5H14.5V9.5H15.5V11.5Z" fill="#06C755"/>
+        </svg>
+        เข้าสู่ระบบด้วย LINE
+      </button>
+
+      <div class="login-note">
+        ต้องเป็นบัญชี LINE ที่ลงทะเบียนกับ Nail Kloset แล้วเท่านั้น
+      </div>
     </div>
   `;
-}
-
-async function doLogin() {
-  const name   = $('li-name').value.trim();
-  const userId = $('li-userid').value.trim();
-  if (!name || !userId) { showToast('กรุณากรอกข้อมูลให้ครบค่ะ', 'error'); return; }
-
-  localStorage.setItem('nk_staff_name',   name);
-  localStorage.setItem('nk_staff_userId', userId);
-  state.staffName = name;
-  state.userId    = userId;
-  afterLogin();
 }
 
 async function afterLogin() {
@@ -126,6 +212,7 @@ function doLogout() {
   if (!confirm('ออกจากระบบ?')) return;
   localStorage.removeItem('nk_staff_name');
   localStorage.removeItem('nk_staff_userId');
+  localStorage.removeItem('nk_staff_picture');
   location.reload();
 }
 
@@ -133,6 +220,11 @@ function doLogout() {
    APP SHELL
 ══════════════════════════════════════════════ */
 function renderAppShell() {
+  // สร้าง avatar — ใช้รูปจาก LINE ถ้ามี ไม่งั้นใช้อักษรย่อ
+  const avatarHTML = state.picture
+    ? `<img src="${state.picture}" alt="${state.staffName}" class="staff-chip-avatar-img">`
+    : `<div class="staff-chip-avatar">${state.staffName.slice(0,2)}</div>`;
+
   document.body.innerHTML = `
     <div id="offline-banner">⚡ ออฟไลน์อยู่ค่ะ ข้อมูลอาจล่าช้า</div>
 
@@ -142,7 +234,7 @@ function renderAppShell() {
         <div class="top-logo">💅 Nail Kloset<small>Staff Portal</small></div>
         <div class="top-right">
           <div class="staff-chip">
-            <div class="staff-chip-avatar">${state.staffName.slice(0,2)}</div>
+            ${avatarHTML}
             <div class="staff-chip-name">${state.staffName}</div>
           </div>
         </div>
@@ -261,7 +353,6 @@ function renderHome() {
     </button>
   `;
 
-  // แสดงวันที่ภาษาไทย
   const now = new Date();
   const DAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
   const MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
@@ -297,7 +388,7 @@ function renderTxItems(recs) {
 }
 
 /* ══════════════════════════════════════════════
-   RECORD PAGE — บันทึกงาน
+   RECORD PAGE
 ══════════════════════════════════════════════ */
 function renderRecord() {
   const el = $('page-record');
@@ -350,7 +441,6 @@ function renderRecord() {
       </button>
     </div>
 
-    <!-- Quick record shortcuts -->
     <div class="card">
       <div class="card-title">⚡ บันทึกด่วน</div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
@@ -440,7 +530,7 @@ async function submitRecord() {
 }
 
 /* ══════════════════════════════════════════════
-   MEMBER PAGE — ค้นหา / เติม / สมัคร
+   MEMBER PAGE
 ══════════════════════════════════════════════ */
 function renderMember() {
   const el = $('page-member');
@@ -448,7 +538,6 @@ function renderMember() {
     <div class="page-title">💳 สมาชิก</div>
     <div class="page-sub">ค้นหา เติมเงิน และตัดยอด</div>
 
-    <!-- ค้นหาสมาชิก -->
     <div class="card">
       <div class="card-title">🔍 ค้นหาด้วยรหัส 4 หลัก</div>
       <div style="display:flex; gap:8px;">
@@ -459,10 +548,8 @@ function renderMember() {
       </div>
     </div>
 
-    <!-- ผลการค้นหา -->
     <div id="mem-result"></div>
 
-    <!-- เพิ่มสมาชิกใหม่ -->
     <div class="card">
       <div class="card-title">🆕 สมัครสมาชิกใหม่</div>
       <div class="form-group">
@@ -492,7 +579,6 @@ function renderMember() {
     </div>
   `;
 
-  // Enter key on member code input
   $('mem-code').addEventListener('keydown', e => {
     if (e.key === 'Enter') searchMember();
   });
@@ -506,9 +592,7 @@ async function searchMember() {
   }
 
   const resultEl = $('mem-result');
-  resultEl.innerHTML = `
-    <div class="shimmer" style="height:140px; margin-bottom:14px;"></div>
-  `;
+  resultEl.innerHTML = `<div class="shimmer" style="height:140px; margin-bottom:14px;"></div>`;
 
   try {
     const result = await api_getMemberByCode(code);
@@ -536,15 +620,10 @@ async function searchMember() {
         </div>
         ${m.expiry ? `<div class="member-card-exp">หมดอายุ: ${m.expiry}</div>` : ''}
       </div>
-
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px;">
-        <button class="btn-primary" onclick="showTopupModal()">
-          💰 เติมเงิน
-        </button>
+        <button class="btn-primary" onclick="showTopupModal()">💰 เติมเงิน</button>
         <button class="btn-secondary" style="color:var(--purple); border-color:var(--purple-pale);"
-          onclick="showDeductInfo()">
-          ✂️ ข้อมูลตัด
-        </button>
+          onclick="showDeductInfo()">✂️ ข้อมูลตัด</button>
       </div>
     `;
 
@@ -666,8 +745,7 @@ async function registerMember() {
   const amount = parseFloat($('reg-amount').value) || 0;
 
   if (!phone || !name || !code || amount <= 0) {
-    showToast('กรุณากรอกข้อมูลให้ครบค่ะ', 'error');
-    return;
+    showToast('กรุณากรอกข้อมูลให้ครบค่ะ', 'error'); return;
   }
 
   try {
@@ -724,7 +802,6 @@ async function loadSummaryPeriod(period, btn) {
     const result = await api_getSummary(state.userId, period);
     renderSummaryResult(result, period);
   } catch (err) {
-    // ถ้า GAS ยังไม่รองรับ action นี้ — fallback คำนวณจาก todayRecs
     fallbackSummary(el);
   }
 }
@@ -831,19 +908,15 @@ function showToast(msg, type = '') {
   _toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
 }
 
-/* ── Offline / Online detection ── */
 function setupOfflineDetect() {
   const banner = $('offline-banner');
   if (!banner) return;
-  function update() {
-    banner.classList.toggle('show', !navigator.onLine);
-  }
+  function update() { banner.classList.toggle('show', !navigator.onLine); }
   window.addEventListener('online',  update);
   window.addEventListener('offline', update);
   update();
 }
 
-/* ── PWA Install prompt ── */
 function setupInstallPrompt() {
   window.addEventListener('beforeinstallprompt', e => {
     e.preventDefault();

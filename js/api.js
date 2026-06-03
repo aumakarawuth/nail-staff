@@ -4,7 +4,7 @@
 ═══════════════════════════════════════ */
 
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbzrZt0orG7_m3Lp9IxQsydBmhSwji_ks456bjKvPbO747-S8mCGQHVrsyqEJHKYjcdd/exec';
-const API_TIMEOUT_MS = 10000; // 10 วินาที
+const API_TIMEOUT_MS = 15000; // 15 วินาที (LINE token แลกช้ากว่าปกติ)
 
 /* ── helper: GET ──────────────────────── */
 async function gasGet(params) {
@@ -15,10 +15,7 @@ async function gasGet(params) {
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
 
   try {
-    const res = await fetch(url, {
-      cache:  'no-cache',
-      signal: controller.signal,
-    });
+    const res = await fetch(url, { cache: 'no-cache', signal: controller.signal });
     clearTimeout(timer);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
@@ -51,6 +48,15 @@ async function gasPost(payload) {
 
 /* ══ API FUNCTIONS ══════════════════════ */
 
+/**
+ * LINE Login — ส่ง code ไปให้ GAS แลก access_token + ดึง profile
+ * GAS จะ return { ok: true, userId, displayName, pictureUrl }
+ * หรือ { ok: false, error: '...' }
+ */
+async function api_lineLogin(code, redirectUri) {
+  return gasPost({ action: 'lineLogin', code, redirectUri });
+}
+
 /** ดึงข้อมูลค่าคอม + สรุปวันนี้ของพนักงาน */
 async function api_getStaffComm(userId) {
   return gasGet({ action: 'getStaffComm', userId });
@@ -61,9 +67,7 @@ async function api_getTodayRecords(userId) {
   return gasGet({ action: 'getStaffTodayRecords', userId });
 }
 
-/** บันทึกงานใหม่
- *  payload: { userId, staffName, service, price, payment, note }
- */
+/** บันทึกงานใหม่ */
 async function api_saveRecord(payload) {
   return gasPost({ action: 'staffSaveRecord', ...payload });
 }
@@ -73,23 +77,17 @@ async function api_getMemberByCode(code) {
   return gasGet({ action: 'getMemberByCode', code });
 }
 
-/** เติมเงินสมาชิก
- *  payload: { userId, staffName, memberCode, payAmount, payment }
- */
+/** เติมเงินสมาชิก */
 async function api_topupMember(payload) {
   return gasPost({ action: 'staffTopup', ...payload });
 }
 
-/** สมัครสมาชิกใหม่
- *  payload: { userId, staffName, phone, name, memberCode, amount }
- */
+/** สมัครสมาชิกใหม่ */
 async function api_registerMember(payload) {
   return gasPost({ action: 'staffRegister', ...payload });
 }
 
-/** ตัดยอดสมาชิก
- *  payload: { userId, staffName, recordId, memberCode, price }
- */
+/** ตัดยอดสมาชิก */
 async function api_deductMember(payload) {
   return gasPost({ action: 'staffDeduct', ...payload });
 }
@@ -99,16 +97,12 @@ async function api_getConfig() {
   return gasGet({ action: 'getConfig' });
 }
 
-/** ดึงรายการสรุปย้อนหลัง (week/month)
- *  params: { userId, period: 'day'|'week'|'month' }
- */
+/** ดึงรายการสรุปย้อนหลัง */
 async function api_getSummary(userId, period = 'day') {
   return gasGet({ action: 'getStaffSummary', userId, period });
 }
 
-/** ขอลบรายการ (ส่งให้ Admin อนุมัติ)
- *  payload: { userId, staffName, recordId }
- */
+/** ขอลบรายการ */
 async function api_requestVoid(payload) {
   return gasPost({ action: 'staffRequestVoid', ...payload });
 }
