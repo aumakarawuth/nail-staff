@@ -5,12 +5,12 @@
 
 const CACHE_NAME   = 'nail-staff-v1';
 const SHELL_ASSETS = [
-  '/',
-  '/index.html',
-  '/css/app.css',
-  '/js/app.js',
-  '/js/api.js',
-  '/manifest.json',
+  '/nail-staff/',
+  '/nail-staff/index.html',
+  '/nail-staff/css/app.css',
+  '/nail-staff/js/app.js',
+  '/nail-staff/js/api.js',
+  '/nail-staff/manifest.json',
   'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap',
 ];
 
