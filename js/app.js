@@ -1,9 +1,7 @@
 /* ═══════════════════════════════════════════════
    app.js — Nail Kloset Staff PWA
-   Main application logic
 ═══════════════════════════════════════════════ */
 
-/* ── CONFIG ── */
 const SVC_COLORS = {
   'ทำเล็บ':        '#FF2D6F',
   'ต่อขนตา':       '#7B52AB',
@@ -20,96 +18,72 @@ const COMMISSION_RATE = {
   'แว็กขน':       0.10,
 };
 
-const SERVICE_LIST = [
-  'ทำเล็บ', 'ต่อขนตา', 'สปามือ/เท้า', 'แว็กขน',
-];
+const SERVICE_LIST = ['ทำเล็บ', 'ต่อขนตา', 'สปามือ/เท้า', 'แว็กขน'];
 
 const PAYMENT_LIST = [
-  { id: 'Cash',   label: '💵 สด' },
+  { id: 'Cash',     label: '💵 สด' },
   { id: 'Transfer', label: '📲 โอน' },
-  { id: 'Credit', label: '💳 รูด' },
+  { id: 'Credit',   label: '💳 รูด' },
 ];
 
-/* ── LINE LOGIN CONFIG ──
-   กรอก LINE_CHANNEL_ID จาก LINE Developers Console
-   Callback URL ต้องลงทะเบียนใน LINE Login channel:
-   https://aumakarawuth.github.io/nail-staff/
-─────────────────────────────────────────────── */
-const LINE_CHANNEL_ID = '2009606226'; // ← เปลี่ยนตรงนี้
+/* ── LINE CONFIG ── */
+const LINE_CHANNEL_ID  = '2009606226';
 const LINE_REDIRECT_URI = 'https://aumakarawuth.github.io/nail-staff/';
 
 /* ── STATE ── */
 const state = {
-  userId:    null,
-  staffName: null,
-  page:      'home',
-  todayRecs: [],
-  config:    {},
-  member:    null,
-  selectedPayment: 'Cash',
+  userId: null, staffName: null, picture: '',
+  page: 'home', todayRecs: [], config: {},
+  member: null, selectedPayment: 'Cash',
   deferredInstallPrompt: null,
 };
 
-/* ── DOM shortcuts ── */
 const $ = id => document.getElementById(id);
 
 /* ══════════════════════════════════════════════
    INIT
 ══════════════════════════════════════════════ */
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
   registerSW();
   setupOfflineDetect();
   setupInstallPrompt();
 
-  // ตรวจว่า LINE redirect กลับมาพร้อม ?code=
   const urlParams = new URLSearchParams(window.location.search);
   const lineCode  = urlParams.get('code');
   const lineState = urlParams.get('state');
 
   if (lineCode) {
-    // ล้าง ?code= ออกจาก URL ก่อน (ไม่อยากให้ user เห็นหรือ reload แล้วติด)
     window.history.replaceState({}, document.title, window.location.pathname);
-    handleLineCallback(lineCode, lineState);
+    await handleLineCallback(lineCode, lineState);
   } else {
     checkLogin();
   }
 });
 
-/* ── Service Worker ── */
 function registerSW() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(err => {
-      console.warn('SW registration failed:', err);
-    });
+    navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 }
 
 /* ══════════════════════════════════════════════
-   LINE LOGIN FLOW
+   LINE LOGIN — แลก token ใน browser โดยตรง
+   ไม่ผ่าน GAS เพื่อหลีกเลี่ยง cold start timeout
 ══════════════════════════════════════════════ */
-
-/** สร้าง state สุ่มเพื่อป้องกัน CSRF */
-function generateLineState() {
-  const s = Math.random().toString(36).substring(2, 15);
-  sessionStorage.setItem('line_oauth_state', s);
-  return s;
-}
-
-/** redirect ไปหน้า LINE Login */
 function loginWithLine() {
-  const oauthState = generateLineState();
+  const oauthState = Math.random().toString(36).substring(2, 15);
+  sessionStorage.setItem('line_oauth_state', oauthState);
+
   const params = new URLSearchParams({
     response_type: 'code',
     client_id:     LINE_CHANNEL_ID,
     redirect_uri:  LINE_REDIRECT_URI,
     state:         oauthState,
     scope:         'profile',
-    bot_prompt:    'normal',  // ให้ add friend ด้วย (optional — ลบออกได้)
   });
   window.location.href = `https://access.line.me/oauth2/v2.1/authorize?${params}`;
 }
 
-/** รับ callback จาก LINE — ส่ง code ไปให้ GAS แลก token + profile */
 async function handleLineCallback(code, returnedState) {
   // ตรวจ state
   const savedState = sessionStorage.getItem('line_oauth_state');
@@ -120,46 +94,70 @@ async function handleLineCallback(code, returnedState) {
     return;
   }
 
-  // แสดง loading screen ระหว่างรอ
   $('loading-screen').classList.remove('out');
-  $('loading-screen').querySelector('.load-sub').textContent = 'กำลังยืนยันตัวตน...';
+  $('loading-screen').querySelector('.load-sub').textContent = 'กำลังเข้าสู่ระบบ...';
 
   try {
-    // GAS จะแลก code → access_token → ดึง LINE profile
-    const result = await api_lineLogin(code, LINE_REDIRECT_URI);
+    /* ── Step 1: แลก code → access_token ใน browser โดยตรง ── */
+    const tokenRes = await fetch('https://api.line.me/oauth2/v2.1/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type:   'authorization_code',
+        code:         code,
+        redirect_uri: LINE_REDIRECT_URI,
+        client_id:    LINE_CHANNEL_ID,
+        // ไม่ส่ง client_secret — LINE Login รองรับ public client
+        // ถ้า error ให้ดูขั้นตอนถัดไปด้านล่าง
+      }),
+    });
 
-    if (!result || result.ok === false) {
-      throw new Error(result?.error || 'ไม่สามารถเข้าสู่ระบบได้');
+    const tokenData = await tokenRes.json();
+    if (!tokenData.access_token) {
+      throw new Error(tokenData.error_description || 'แลก token ไม่ได้');
+    }
+
+    /* ── Step 2: ดึง profile ── */
+    const profileRes = await fetch('https://api.line.me/v2/profile', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+
+    const profile = await profileRes.json();
+    if (!profile.userId) throw new Error('ดึง profile ไม่ได้');
+
+    /* ── Step 3: ตรวจสอบกับ GAS ว่าเป็นพนักงานจริง ── */
+    const verifyResult = await api_verifyStaff(profile.userId, profile.displayName);
+    if (verifyResult.ok === false) {
+      throw new Error(verifyResult.error || 'ไม่พบบัญชีพนักงาน');
     }
 
     // บันทึก session
-    localStorage.setItem('nk_staff_userId', result.userId);
-    localStorage.setItem('nk_staff_name',   result.displayName);
-    localStorage.setItem('nk_staff_picture', result.pictureUrl || '');
+    const displayName = verifyResult.staffName || profile.displayName;
+    localStorage.setItem('nk_staff_userId',  profile.userId);
+    localStorage.setItem('nk_staff_name',    displayName);
+    localStorage.setItem('nk_staff_picture', profile.pictureUrl || '');
 
-    state.userId    = result.userId;
-    state.staffName = result.displayName;
-    state.picture   = result.pictureUrl || '';
+    state.userId    = profile.userId;
+    state.staffName = displayName;
+    state.picture   = profile.pictureUrl || '';
 
     afterLogin();
 
   } catch (err) {
     $('loading-screen').classList.add('out');
     showLoginScreen();
-    showToast('❌ ' + (err.message || 'เข้าสู่ระบบไม่สำเร็จ'), 'error');
+    showToast('❌ ' + err.message, 'error');
   }
 }
 
 /* ── Login check ── */
 function checkLogin() {
-  const savedUser    = localStorage.getItem('nk_staff_userId');
-  const savedName    = localStorage.getItem('nk_staff_name');
-  const savedPicture = localStorage.getItem('nk_staff_picture');
-
+  const savedUser = localStorage.getItem('nk_staff_userId');
+  const savedName = localStorage.getItem('nk_staff_name');
   if (savedUser && savedName) {
     state.userId    = savedUser;
     state.staffName = savedName;
-    state.picture   = savedPicture || '';
+    state.picture   = localStorage.getItem('nk_staff_picture') || '';
     afterLogin();
   } else {
     showLoginScreen();
@@ -176,24 +174,19 @@ function renderLoginForm() {
   $('login-screen').innerHTML = `
     <div class="login-logo">💅 Nail Kloset</div>
     <div class="login-sub">Staff Portal</div>
-
     <div class="login-card">
       <div class="login-desc">
         เข้าสู่ระบบด้วยบัญชี LINE ของคุณ<br>
         <small>ระบบจะดึงชื่อและ ID จาก LINE อัตโนมัติ</small>
       </div>
-      <button class="btn-line" id="btn-line-login" onclick="loginWithLine()">
+      <button class="btn-line" onclick="loginWithLine()">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
           <rect width="24" height="24" rx="6" fill="#06C755"/>
           <path d="M20 10.5C20 6.9 16.4 4 12 4C7.6 4 4 6.9 4 10.5C4 13.7 6.8 16.4 10.7 17.1L11.5 17.9L11.5 19.4C11.5 19.7 11.8 19.9 12.1 19.8L13.9 18.9C17.4 18.1 20 14.6 20 10.5Z" fill="white"/>
-          <path d="M9.5 11.5H8.5V9.5H9.5V11.5ZM12.5 11.5H11.5V9.5H12.5V11.5ZM15.5 11.5H14.5V9.5H15.5V11.5Z" fill="#06C755"/>
         </svg>
         เข้าสู่ระบบด้วย LINE
       </button>
-
-      <div class="login-note">
-        ต้องเป็นบัญชี LINE ที่ลงทะเบียนกับ Nail Kloset แล้วเท่านั้น
-      </div>
+      <div class="login-note">ต้องเป็นบัญชี LINE ที่ลงทะเบียนกับ Nail Kloset แล้วเท่านั้น</div>
     </div>
   `;
 }
@@ -207,7 +200,6 @@ async function afterLogin() {
   goPage('home');
 }
 
-/* ── Logout ── */
 function doLogout() {
   if (!confirm('ออกจากระบบ?')) return;
   localStorage.removeItem('nk_staff_name');
@@ -220,16 +212,13 @@ function doLogout() {
    APP SHELL
 ══════════════════════════════════════════════ */
 function renderAppShell() {
-  // สร้าง avatar — ใช้รูปจาก LINE ถ้ามี ไม่งั้นใช้อักษรย่อ
   const avatarHTML = state.picture
     ? `<img src="${state.picture}" alt="${state.staffName}" class="staff-chip-avatar-img">`
     : `<div class="staff-chip-avatar">${state.staffName.slice(0,2)}</div>`;
 
   document.body.innerHTML = `
     <div id="offline-banner">⚡ ออฟไลน์อยู่ค่ะ ข้อมูลอาจล่าช้า</div>
-
     <div id="app">
-      <!-- Top Bar -->
       <div class="top-bar">
         <div class="top-logo">💅 Nail Kloset<small>Staff Portal</small></div>
         <div class="top-right">
@@ -239,43 +228,28 @@ function renderAppShell() {
           </div>
         </div>
       </div>
-
-      <!-- Pages -->
       <div id="page-home"    class="page"></div>
       <div id="page-record"  class="page"></div>
       <div id="page-member"  class="page"></div>
       <div id="page-summary" class="page"></div>
-
-      <!-- Bottom Nav -->
       <nav class="bottom-nav">
-        <button class="nav-item active" id="nav-home" onclick="goPage('home')">
-          <span class="icon">🏠</span>หน้าหลัก
-        </button>
-        <button class="nav-item" id="nav-record" onclick="goPage('record')">
-          <span class="icon">✏️</span>บันทึกงาน
-        </button>
-        <button class="nav-item" id="nav-member" onclick="goPage('member')">
-          <span class="icon">💳</span>สมาชิก
-        </button>
-        <button class="nav-item" id="nav-summary" onclick="goPage('summary')">
-          <span class="icon">📊</span>สรุปยอด
-        </button>
+        <button class="nav-item active" id="nav-home"    onclick="goPage('home')">   <span class="icon">🏠</span>หน้าหลัก</button>
+        <button class="nav-item"        id="nav-record"  onclick="goPage('record')"> <span class="icon">✏️</span>บันทึกงาน</button>
+        <button class="nav-item"        id="nav-member"  onclick="goPage('member')"> <span class="icon">💳</span>สมาชิก</button>
+        <button class="nav-item"        id="nav-summary" onclick="goPage('summary')"><span class="icon">📊</span>สรุปยอด</button>
       </nav>
     </div>
-
     <div id="install-prompt">
       <span class="install-icon">📲</span>
       <div class="install-text">
         <strong>เพิ่มลงหน้าจอหลัก</strong>
-        <small>เปิดแอปได้เร็วขึ้น ไม่ต้องเปิดเบราว์เซอร์</small>
+        <small>เปิดแอปได้เร็วขึ้น</small>
       </div>
       <button class="install-btn" onclick="triggerInstall()">ติดตั้ง</button>
       <button class="install-dismiss" onclick="dismissInstall()">✕</button>
     </div>
-
     <div class="toast" id="toast"></div>
   `;
-
   setupOfflineDetect();
   checkInstallPrompt();
 }
@@ -291,15 +265,12 @@ function hideLoading() {
 function goPage(page) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-
   const pageEl = $(`page-${page}`);
   const navEl  = $(`nav-${page}`);
   if (pageEl) pageEl.classList.add('active');
   if (navEl)  navEl.classList.add('active');
-
   state.page = page;
   pageEl.scrollTop = 0;
-
   if (page === 'home')    renderHome();
   if (page === 'record')  renderRecord();
   if (page === 'member')  renderMember();
@@ -310,35 +281,21 @@ function goPage(page) {
    HOME PAGE
 ══════════════════════════════════════════════ */
 function renderHome() {
-  const el = $('page-home');
+  const el   = $('page-home');
   const recs = state.todayRecs.filter(r => !['เติมเงินสมาชิก','เปิดเมมเบอร์ใหม่'].includes(r.service));
-  const total    = recs.reduce((s, r) => s + r.price, 0);
-  const commTotal= Math.round(recs.reduce((s, r) => s + r.price * (COMMISSION_RATE[r.service] || 0.1), 0));
-  const count    = recs.length;
+  const total     = recs.reduce((s, r) => s + r.price, 0);
+  const commTotal = Math.round(recs.reduce((s, r) => s + r.price * (COMMISSION_RATE[r.service] || 0.1), 0));
+  const count     = recs.length;
 
   el.innerHTML = `
     <div class="page-title">สวัสดี <span>${state.staffName}</span> 👋</div>
     <div class="page-sub" id="home-date-lbl">—</div>
-
     <div class="stat-row">
-      <div class="stat-box">
-        <div class="s-val">฿${total.toLocaleString()}</div>
-        <div class="s-lbl">รายรับวันนี้</div>
-      </div>
-      <div class="stat-box">
-        <div class="s-val" style="color:var(--green)">฿${commTotal.toLocaleString()}</div>
-        <div class="s-lbl">ค่าคอมรวม</div>
-      </div>
-      <div class="stat-box">
-        <div class="s-val" style="color:var(--purple)">${count}</div>
-        <div class="s-lbl">รายการ</div>
-      </div>
+      <div class="stat-box"><div class="s-val">฿${total.toLocaleString()}</div><div class="s-lbl">รายรับวันนี้</div></div>
+      <div class="stat-box"><div class="s-val" style="color:var(--green)">฿${commTotal.toLocaleString()}</div><div class="s-lbl">ค่าคอมรวม</div></div>
+      <div class="stat-box"><div class="s-val" style="color:var(--purple)">${count}</div><div class="s-lbl">รายการ</div></div>
     </div>
-
-    <button class="btn-primary" onclick="goPage('record')" style="margin-bottom:16px">
-      ✏️ บันทึกงานใหม่
-    </button>
-
+    <button class="btn-primary" onclick="goPage('record')" style="margin-bottom:16px">✏️ บันทึกงานใหม่</button>
     <div class="card">
       <div class="card-title">📋 รายการวันนี้</div>
       <div id="home-tx-list">
@@ -347,14 +304,11 @@ function renderHome() {
           : renderTxItems(state.todayRecs)}
       </div>
     </div>
-
-    <button class="btn-secondary" onclick="doLogout()" style="margin-top:8px">
-      🚪 ออกจากระบบ
-    </button>
+    <button class="btn-secondary" onclick="doLogout()" style="margin-top:8px">🚪 ออกจากระบบ</button>
   `;
 
   const now = new Date();
-  const DAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
+  const DAYS   = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
   const MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
   $('home-date-lbl').textContent =
     `วัน${DAYS[now.getDay()]}ที่ ${now.getDate()} ${MONTHS[now.getMonth()]} ${now.getFullYear()+543}`;
@@ -362,15 +316,11 @@ function renderHome() {
 
 function renderTxItems(recs) {
   return recs.map(r => {
-    const isMemSvc = ['เติมเงินสมาชิก','เปิดเมมเบอร์ใหม่'].includes(r.service);
-    const comm = isMemSvc ? '' : ` · คอม ฿${Math.round(r.price*(COMMISSION_RATE[r.service]||0.1)).toLocaleString()}`;
-    const badgeClass = r.payment === 'Member' ? 'badge-member' :
-                       r.payment === 'Transfer' ? 'badge-credit' :
-                       r.payment === 'Credit' ? 'badge-credit' : 'badge-cash';
-    const badgeLabel = r.payment === 'Member' ? 'เมม' :
-                       r.payment === 'Transfer' ? 'โอน' :
-                       r.payment === 'Credit' ? 'รูด' : 'สด';
-    const col = SVC_COLORS[r.service] || '#999';
+    const isMemSvc   = ['เติมเงินสมาชิก','เปิดเมมเบอร์ใหม่'].includes(r.service);
+    const comm       = isMemSvc ? '' : ` · คอม ฿${Math.round(r.price*(COMMISSION_RATE[r.service]||0.1)).toLocaleString()}`;
+    const badgeClass = r.payment === 'Member' ? 'badge-member' : r.payment === 'Transfer' ? 'badge-credit' : r.payment === 'Credit' ? 'badge-credit' : 'badge-cash';
+    const badgeLabel = r.payment === 'Member' ? 'เมม' : r.payment === 'Transfer' ? 'โอน' : r.payment === 'Credit' ? 'รูด' : 'สด';
+    const col        = SVC_COLORS[r.service] || '#999';
     return `
       <div class="tx-item">
         <div class="tx-dot" style="background:${col}"></div>
@@ -382,8 +332,7 @@ function renderTxItems(recs) {
           <span class="tx-badge ${badgeClass}">${badgeLabel}</span>
           <div class="tx-price">฿${r.price.toLocaleString()}</div>
         </div>
-      </div>
-    `;
+      </div>`;
   }).join('');
 }
 
@@ -395,7 +344,6 @@ function renderRecord() {
   el.innerHTML = `
     <div class="page-title">✏️ บันทึก<span>งาน</span></div>
     <div class="page-sub">เพิ่มรายการบริการวันนี้</div>
-
     <div class="card">
       <div class="form-group">
         <label class="form-label">💅 บริการ</label>
@@ -404,58 +352,35 @@ function renderRecord() {
           ${SERVICE_LIST.map(s => `<option value="${s}">${s}</option>`).join('')}
         </select>
       </div>
-
       <div class="form-group">
         <label class="form-label">💰 ราคา (บาท)</label>
-        <input class="form-input" id="rec-price" type="number"
-          inputmode="numeric" placeholder="0" min="0" step="1">
+        <input class="form-input" id="rec-price" type="number" inputmode="numeric" placeholder="0" min="0" step="1">
       </div>
-
       <div class="form-group">
         <label class="form-label">💳 การชำระเงิน</label>
         <div class="pay-chips" id="pay-chips">
-          ${PAYMENT_LIST.map(p => `
-            <button class="pay-chip ${p.id === state.selectedPayment ? 'active' : ''}"
-              onclick="selectPayment('${p.id}')" data-pay="${p.id}">
-              ${p.label}
-            </button>
-          `).join('')}
+          ${PAYMENT_LIST.map(p => `<button class="pay-chip ${p.id === state.selectedPayment ? 'active' : ''}" onclick="selectPayment('${p.id}')" data-pay="${p.id}">${p.label}</button>`).join('')}
         </div>
       </div>
-
       <div class="form-group">
         <label class="form-label">📝 หมายเหตุ (ถ้ามี)</label>
-        <input class="form-input" id="rec-note" type="text"
-          placeholder="เช่น สีที่ต้องการ">
+        <input class="form-input" id="rec-note" type="text" placeholder="เช่น สีที่ต้องการ">
       </div>
-
       <div id="rec-preview" style="display:none; margin-bottom:16px;">
         <div class="card" style="background:var(--rose-pale); border-color:var(--rose-light); margin-bottom:0;">
           <div style="font-size:13px; font-weight:700; color:var(--rose2); margin-bottom:4px;">ตัวอย่างค่าคอม</div>
           <div id="rec-comm-preview" style="font-size:22px; font-weight:700; font-family:var(--ff-mono); color:var(--rose);">—</div>
         </div>
       </div>
-
-      <button class="btn-primary" id="rec-submit-btn" onclick="submitRecord()">
-        💾 บันทึกรายการ
-      </button>
+      <button class="btn-primary" id="rec-submit-btn" onclick="submitRecord()">💾 บันทึกรายการ</button>
     </div>
-
     <div class="card">
       <div class="card-title">⚡ บันทึกด่วน</div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-        ${SERVICE_LIST.map(s => `
-          <button onclick="quickRecord('${s}')" style="
-            padding:12px; border-radius:var(--radius-sm);
-            border:1.5px solid var(--border); background:#fff;
-            font-family:var(--ff); font-size:14px; font-weight:600;
-            color:var(--ink2); cursor:pointer; min-height:48px;
-          ">${s}</button>
-        `).join('')}
+        ${SERVICE_LIST.map(s => `<button onclick="quickRecord('${s}')" style="padding:12px; border-radius:var(--radius-sm); border:1.5px solid var(--border); background:#fff; font-family:var(--ff); font-size:14px; font-weight:600; color:var(--ink2); cursor:pointer; min-height:48px;">${s}</button>`).join('')}
       </div>
     </div>
   `;
-
   $('rec-price').addEventListener('input', updateCommPreview);
   $('rec-service').addEventListener('change', updateCommPreview);
 }
@@ -472,7 +397,6 @@ function updateCommPreview() {
   const price = parseFloat($('rec-price').value) || 0;
   const rate  = COMMISSION_RATE[svc] || 0.10;
   const comm  = Math.round(price * rate);
-
   const preview = $('rec-preview');
   if (svc && price > 0) {
     preview.style.display = 'block';
@@ -492,40 +416,22 @@ async function submitRecord() {
   const svc   = $('rec-service').value;
   const price = parseFloat($('rec-price').value) || 0;
   const note  = $('rec-note').value.trim();
-
-  if (!svc)    { showToast('เลือกบริการก่อนนะคะ', 'error'); return; }
-  if (price <= 0) { showToast('กรุณากรอกราคาค่ะ', 'error'); return; }
-
+  if (!svc)       { showToast('เลือกบริการก่อนนะคะ', 'error'); return; }
+  if (price <= 0) { showToast('กรุณากรอกราคาค่ะ', 'error');    return; }
   const btn = $('rec-submit-btn');
-  btn.disabled = true;
-  btn.textContent = '⏳ กำลังบันทึก...';
-
+  btn.disabled = true; btn.textContent = '⏳ กำลังบันทึก...';
   try {
-    const result = await api_saveRecord({
-      userId:    state.userId,
-      staffName: state.staffName,
-      service:   svc,
-      price:     price,
-      payment:   state.selectedPayment,
-      note,
-    });
-
+    const result = await api_saveRecord({ userId: state.userId, staffName: state.staffName, service: svc, price, payment: state.selectedPayment, note });
     if (result.ok === false) throw new Error(result.error);
-
     showToast(`✅ บันทึก ${svc} ฿${price.toLocaleString()} แล้วค่ะ`, 'success');
-    $('rec-service').value = '';
-    $('rec-price').value   = '';
-    $('rec-note').value    = '';
+    $('rec-service').value = ''; $('rec-price').value = ''; $('rec-note').value = '';
     $('rec-preview').style.display = 'none';
-
     await loadTodayRecords();
     goPage('home');
-
   } catch (err) {
     showToast('❌ ' + (err.message || 'เกิดข้อผิดพลาด'), 'error');
   } finally {
-    btn.disabled = false;
-    btn.textContent = '💾 บันทึกรายการ';
+    btn.disabled = false; btn.textContent = '💾 บันทึกรายการ';
   }
 }
 
@@ -537,145 +443,84 @@ function renderMember() {
   el.innerHTML = `
     <div class="page-title">💳 สมาชิก</div>
     <div class="page-sub">ค้นหา เติมเงิน และตัดยอด</div>
-
     <div class="card">
       <div class="card-title">🔍 ค้นหาด้วยรหัส 4 หลัก</div>
       <div style="display:flex; gap:8px;">
-        <input class="form-input" id="mem-code" type="number"
-          inputmode="numeric" placeholder="รหัส 4 หลัก" maxlength="4"
-          style="flex:1; margin-bottom:0;">
+        <input class="form-input" id="mem-code" type="number" inputmode="numeric" placeholder="รหัส 4 หลัก" maxlength="4" style="flex:1; margin-bottom:0;">
         <button class="btn-icon" onclick="searchMember()">🔍</button>
       </div>
     </div>
-
     <div id="mem-result"></div>
-
     <div class="card">
       <div class="card-title">🆕 สมัครสมาชิกใหม่</div>
-      <div class="form-group">
-        <label class="form-label">เบอร์โทร</label>
-        <input class="form-input" id="reg-phone" type="tel"
-          inputmode="tel" placeholder="0812345678" maxlength="10">
-      </div>
-      <div class="form-group">
-        <label class="form-label">ชื่อสมาชิก</label>
-        <input class="form-input" id="reg-name" type="text" placeholder="ชื่อ">
-      </div>
+      <div class="form-group"><label class="form-label">เบอร์โทร</label><input class="form-input" id="reg-phone" type="tel" inputmode="tel" placeholder="0812345678" maxlength="10"></div>
+      <div class="form-group"><label class="form-label">ชื่อสมาชิก</label><input class="form-input" id="reg-name" type="text" placeholder="ชื่อ"></div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px;">
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label">รหัส 4 หลัก</label>
-          <input class="form-input" id="reg-code" type="number"
-            inputmode="numeric" placeholder="เช่น 1234" maxlength="4">
-        </div>
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label">ยอดเปิด (฿)</label>
-          <input class="form-input" id="reg-amount" type="number"
-            inputmode="numeric" placeholder="0">
-        </div>
+        <div class="form-group" style="margin-bottom:0;"><label class="form-label">รหัส 4 หลัก</label><input class="form-input" id="reg-code" type="number" inputmode="numeric" placeholder="เช่น 1234" maxlength="4"></div>
+        <div class="form-group" style="margin-bottom:0;"><label class="form-label">ยอดเปิด (฿)</label><input class="form-input" id="reg-amount" type="number" inputmode="numeric" placeholder="0"></div>
       </div>
-      <button class="btn-primary btn-green" onclick="registerMember()">
-        🆕 สมัครสมาชิก
-      </button>
+      <button class="btn-primary btn-green" onclick="registerMember()">🆕 สมัครสมาชิก</button>
     </div>
   `;
-
-  $('mem-code').addEventListener('keydown', e => {
-    if (e.key === 'Enter') searchMember();
-  });
+  $('mem-code').addEventListener('keydown', e => { if (e.key === 'Enter') searchMember(); });
 }
 
 async function searchMember() {
   const code = $('mem-code').value.trim();
-  if (!code || code.length !== 4) {
-    showToast('กรุณากรอกรหัส 4 หลักค่ะ', 'error');
-    return;
-  }
-
+  if (!code || code.length !== 4) { showToast('กรุณากรอกรหัส 4 หลักค่ะ', 'error'); return; }
   const resultEl = $('mem-result');
   resultEl.innerHTML = `<div class="shimmer" style="height:140px; margin-bottom:14px;"></div>`;
-
   try {
     const result = await api_getMemberByCode(code);
     if (!result || !result.found) {
-      resultEl.innerHTML = `
-        <div class="card" style="text-align:center; color:var(--ink3);">
-          <span style="font-size:36px;">🔍</span>
-          <div style="margin-top:8px;">ไม่พบสมาชิกรหัส ${code} ค่ะ</div>
-        </div>
-      `;
+      resultEl.innerHTML = `<div class="card" style="text-align:center; color:var(--ink3);"><span style="font-size:36px;">🔍</span><div style="margin-top:8px;">ไม่พบสมาชิกรหัส ${code} ค่ะ</div></div>`;
       return;
     }
-
     state.member = result;
-    const m = result;
-    const lowBal = m.balance < 500;
-
+    const m = result; const lowBal = m.balance < 500;
     resultEl.innerHTML = `
       <div class="member-card">
         <div class="member-card-name">${m.name}</div>
         <div class="member-card-code">รหัส ${m.memberCode} · ${m.phone}</div>
         <div class="member-card-bal-lbl">ยอดเงินคงเหลือ</div>
-        <div class="member-card-bal" style="color:${lowBal ? '#FF6B9D' : '#fff'}">
-          ฿${m.balance.toLocaleString()}
-        </div>
+        <div class="member-card-bal" style="color:${lowBal ? '#FF6B9D' : '#fff'}">฿${m.balance.toLocaleString()}</div>
         ${m.expiry ? `<div class="member-card-exp">หมดอายุ: ${m.expiry}</div>` : ''}
       </div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px;">
         <button class="btn-primary" onclick="showTopupModal()">💰 เติมเงิน</button>
-        <button class="btn-secondary" style="color:var(--purple); border-color:var(--purple-pale);"
-          onclick="showDeductInfo()">✂️ ข้อมูลตัด</button>
-      </div>
-    `;
-
+        <button class="btn-secondary" style="color:var(--purple); border-color:var(--purple-pale);" onclick="showDeductInfo()">✂️ ข้อมูลตัด</button>
+      </div>`;
   } catch (err) {
-    resultEl.innerHTML = `
-      <div class="card" style="color:#EF4444; text-align:center;">
-        ⚠️ ${err.message || 'เชื่อมต่อไม่ได้'}
-      </div>
-    `;
+    resultEl.innerHTML = `<div class="card" style="color:#EF4444; text-align:center;">⚠️ ${err.message || 'เชื่อมต่อไม่ได้'}</div>`;
   }
 }
 
 function showTopupModal() {
   if (!state.member) return;
   const m = state.member;
-
   document.body.insertAdjacentHTML('beforeend', `
     <div class="modal-bg show" id="topup-modal" onclick="if(event.target===this)closeModal('topup-modal')">
       <div class="modal">
         <div class="modal-handle"></div>
         <div class="modal-title">💰 เติมเงิน — ${m.name}</div>
-        <div style="font-size:14px; color:var(--ink3); margin-bottom:16px;">
-          ยอดปัจจุบัน ฿${m.balance.toLocaleString()}
-        </div>
-
+        <div style="font-size:14px; color:var(--ink3); margin-bottom:16px;">ยอดปัจจุบัน ฿${m.balance.toLocaleString()}</div>
         <div class="form-group">
           <label class="form-label">ยอดเงินที่จ่าย (฿)</label>
-          <input class="form-input" id="topup-amount" type="number"
-            inputmode="numeric" placeholder="0" min="0" step="100">
+          <input class="form-input" id="topup-amount" type="number" inputmode="numeric" placeholder="0" min="0" step="100">
         </div>
-
         <div class="form-group">
           <label class="form-label">ช่องทาง</label>
           <div class="pay-chips">
-            ${PAYMENT_LIST.map(p => `
-              <button class="pay-chip ${p.id === 'Cash' ? 'active' : ''}"
-                onclick="selectTopupPay('${p.id}')" data-tpay="${p.id}">
-                ${p.label}
-              </button>
-            `).join('')}
+            ${PAYMENT_LIST.map(p => `<button class="pay-chip ${p.id === 'Cash' ? 'active' : ''}" onclick="selectTopupPay('${p.id}')" data-tpay="${p.id}">${p.label}</button>`).join('')}
           </div>
         </div>
-
         <div id="topup-credit-preview" style="margin-bottom:16px;"></div>
-
         <button class="btn-primary" onclick="doTopup()">✅ ยืนยันเติมเงิน</button>
         <div style="height:10px;"></div>
         <button class="btn-secondary" onclick="closeModal('topup-modal')">ยกเลิก</button>
       </div>
     </div>
   `);
-
   $('topup-amount').addEventListener('input', updateTopupPreview);
 }
 
@@ -688,81 +533,43 @@ function selectTopupPay(payId) {
 function updateTopupPreview() {
   const amount = parseFloat($('topup-amount').value) || 0;
   const cfg    = state.config;
-  const tier   = amount >= 20000 ? (cfg.TIER_20K || 27000) :
-                 amount >= 10000 ? (cfg.TIER_10K || 13000) :
-                 amount >= 5000  ? (cfg.TIER_5K  || 6000)  : amount;
+  const tier   = amount >= 20000 ? (cfg.TIER_20K || 27000) : amount >= 10000 ? (cfg.TIER_10K || 13000) : amount >= 5000 ? (cfg.TIER_5K || 6000) : amount;
   const bonus  = tier - amount;
-  const el = $('topup-credit-preview');
+  const el     = $('topup-credit-preview');
   if (amount > 0) {
-    el.innerHTML = `
-      <div class="card" style="background:var(--green-pale); border-color:#A8E6CD; margin-bottom:0;">
-        <div style="font-size:12px; font-weight:700; color:#0A7040; margin-bottom:4px;">จะได้รับเครดิต</div>
-        <div style="font-size:24px; font-weight:700; font-family:var(--ff-mono); color:var(--green);">
-          ฿${tier.toLocaleString()}
-        </div>
-        ${bonus > 0 ? `<div style="font-size:12px; color:#0A7040;">โบนัส +฿${bonus.toLocaleString()}</div>` : ''}
-      </div>
-    `;
-  } else {
-    el.innerHTML = '';
-  }
+    el.innerHTML = `<div class="card" style="background:var(--green-pale); border-color:#A8E6CD; margin-bottom:0;"><div style="font-size:12px; font-weight:700; color:#0A7040; margin-bottom:4px;">จะได้รับเครดิต</div><div style="font-size:24px; font-weight:700; font-family:var(--ff-mono); color:var(--green);">฿${tier.toLocaleString()}</div>${bonus > 0 ? `<div style="font-size:12px; color:#0A7040;">โบนัส +฿${bonus.toLocaleString()}</div>` : ''}</div>`;
+  } else { el.innerHTML = ''; }
 }
 
 async function doTopup() {
   const amount  = parseFloat($('topup-amount').value) || 0;
   const payment = document.querySelector('[data-tpay].active')?.getAttribute('data-tpay') || 'Cash';
-
   if (amount <= 0) { showToast('กรอกยอดเงินด้วยค่ะ', 'error'); return; }
-
   try {
-    const result = await api_topupMember({
-      userId:     state.userId,
-      staffName:  state.staffName,
-      memberCode: state.member.memberCode,
-      payAmount:  amount,
-      payment,
-    });
+    const result = await api_topupMember({ userId: state.userId, staffName: state.staffName, memberCode: state.member.memberCode, payAmount: amount, payment });
     if (result.ok === false) throw new Error(result.error);
     showToast('✅ เติมเงินสำเร็จค่ะ', 'success');
     closeModal('topup-modal');
-    await searchMember();
-    await loadTodayRecords();
-  } catch (err) {
-    showToast('❌ ' + (err.message || 'เกิดข้อผิดพลาด'), 'error');
-  }
+    await searchMember(); await loadTodayRecords();
+  } catch (err) { showToast('❌ ' + (err.message || 'เกิดข้อผิดพลาด'), 'error'); }
 }
 
 function showDeductInfo() {
   if (!state.member) return;
   const m = state.member;
-  showToast(`รหัส ${m.memberCode} · ยอด ฿${m.balance.toLocaleString()} · กด "หักสมาชิก" หลังบันทึกงานค่ะ`);
+  showToast(`รหัส ${m.memberCode} · ยอด ฿${m.balance.toLocaleString()}`);
 }
 
 async function registerMember() {
-  const phone  = $('reg-phone').value.trim();
-  const name   = $('reg-name').value.trim();
-  const code   = $('reg-code').value.trim();
-  const amount = parseFloat($('reg-amount').value) || 0;
-
-  if (!phone || !name || !code || amount <= 0) {
-    showToast('กรุณากรอกข้อมูลให้ครบค่ะ', 'error'); return;
-  }
-
+  const phone = $('reg-phone').value.trim(), name = $('reg-name').value.trim();
+  const code  = $('reg-code').value.trim(), amount = parseFloat($('reg-amount').value) || 0;
+  if (!phone || !name || !code || amount <= 0) { showToast('กรุณากรอกข้อมูลให้ครบค่ะ', 'error'); return; }
   try {
-    const result = await api_registerMember({
-      userId:    state.userId,
-      staffName: state.staffName,
-      phone, name, memberCode: code, amount,
-    });
+    const result = await api_registerMember({ userId: state.userId, staffName: state.staffName, phone, name, memberCode: code, amount });
     if (result.ok === false) throw new Error(result.error);
     showToast(`✅ สมัครสมาชิก ${name} รหัส ${code} สำเร็จค่ะ`, 'success');
-    $('reg-phone').value = '';
-    $('reg-name').value  = '';
-    $('reg-code').value  = '';
-    $('reg-amount').value= '';
-  } catch (err) {
-    showToast('❌ ' + (err.message || 'เกิดข้อผิดพลาด'), 'error');
-  }
+    $('reg-phone').value = ''; $('reg-name').value = ''; $('reg-code').value = ''; $('reg-amount').value = '';
+  } catch (err) { showToast('❌ ' + (err.message || 'เกิดข้อผิดพลาด'), 'error'); }
 }
 
 /* ══════════════════════════════════════════════
@@ -773,19 +580,16 @@ function renderSummary() {
   el.innerHTML = `
     <div class="page-title">📊 สรุป<span>ยอด</span></div>
     <div class="page-sub">ผลการทำงานของ ${state.staffName}</div>
-
     <div style="display:flex; gap:8px; margin-bottom:16px;">
       <button class="pay-chip active" onclick="loadSummaryPeriod('day', this)">วันนี้</button>
       <button class="pay-chip" onclick="loadSummaryPeriod('week', this)">อาทิตย์</button>
       <button class="pay-chip" onclick="loadSummaryPeriod('month', this)">เดือน</button>
     </div>
-
     <div id="summary-content">
       <div class="shimmer" style="height:100px; margin-bottom:14px;"></div>
       <div class="shimmer" style="height:160px; animation-delay:0.1s;"></div>
     </div>
   `;
-
   loadSummaryPeriod('day');
 }
 
@@ -794,79 +598,46 @@ async function loadSummaryPeriod(period, btn) {
     document.querySelectorAll('#page-summary .pay-chip').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
   }
-
   const el = $('summary-content');
   el.innerHTML = `<div class="shimmer" style="height:200px;"></div>`;
-
   try {
     const result = await api_getSummary(state.userId, period);
     renderSummaryResult(result, period);
-  } catch (err) {
-    fallbackSummary(el);
-  }
+  } catch (err) { fallbackSummary(el); }
 }
 
 function fallbackSummary(el) {
-  const recs  = state.todayRecs.filter(r =>
-    !['เติมเงินสมาชิก','เปิดเมมเบอร์ใหม่'].includes(r.service));
+  const recs  = state.todayRecs.filter(r => !['เติมเงินสมาชิก','เปิดเมมเบอร์ใหม่'].includes(r.service));
   const total = recs.reduce((s, r) => s + r.price, 0);
   const comm  = Math.round(recs.reduce((s, r) => s + r.price*(COMMISSION_RATE[r.service]||0.1), 0));
   const byService = {};
   recs.forEach(r => { byService[r.service] = (byService[r.service] || 0) + r.price; });
-
   el.innerHTML = `
     <div class="stat-row">
-      <div class="stat-box">
-        <div class="s-val">฿${total.toLocaleString()}</div>
-        <div class="s-lbl">รายรับ</div>
-      </div>
-      <div class="stat-box">
-        <div class="s-val" style="color:var(--green)">฿${comm.toLocaleString()}</div>
-        <div class="s-lbl">ค่าคอม</div>
-      </div>
+      <div class="stat-box"><div class="s-val">฿${total.toLocaleString()}</div><div class="s-lbl">รายรับ</div></div>
+      <div class="stat-box"><div class="s-val" style="color:var(--green)">฿${comm.toLocaleString()}</div><div class="s-lbl">ค่าคอม</div></div>
     </div>
-    <div class="card">
-      <div class="card-title">💅 แยกตามบริการ</div>
-      ${Object.entries(byService).map(([svc, val]) => `
-        <div style="display:flex; justify-content:space-between;
-          padding:10px 0; border-bottom:1px solid var(--border);">
-          <span style="font-size:14px; color:var(--ink2);">${svc}</span>
-          <span style="font-size:14px; font-weight:700;">฿${val.toLocaleString()}</span>
-        </div>
-      `).join('')}
+    <div class="card"><div class="card-title">💅 แยกตามบริการ</div>
+      ${Object.entries(byService).map(([svc, val]) => `<div style="display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border);"><span style="font-size:14px; color:var(--ink2);">${svc}</span><span style="font-size:14px; font-weight:700;">฿${val.toLocaleString()}</span></div>`).join('')}
     </div>
     <div class="card" style="background:var(--rose-pale); border-color:var(--rose-light);">
-      <div style="font-size:13px; color:var(--ink3); margin-bottom:2px;">ค่าคอมรวม (ข้อมูลจากวันนี้)</div>
-      <div style="font-size:32px; font-weight:700; font-family:var(--ff-mono); color:var(--rose);">
-        ฿${comm.toLocaleString()}
-      </div>
-    </div>
-  `;
+      <div style="font-size:13px; color:var(--ink3); margin-bottom:2px;">ค่าคอมรวม</div>
+      <div style="font-size:32px; font-weight:700; font-family:var(--ff-mono); color:var(--rose);">฿${comm.toLocaleString()}</div>
+    </div>`;
 }
 
 function renderSummaryResult(data, period) {
   const el = $('summary-content');
-  const total = data.total || 0;
-  const comm  = data.comm  || 0;
-
+  const total = data.total || 0, comm = data.comm || 0;
   el.innerHTML = `
     <div class="stat-row">
-      <div class="stat-box">
-        <div class="s-val">฿${total.toLocaleString()}</div>
-        <div class="s-lbl">รายรับ</div>
-      </div>
-      <div class="stat-box">
-        <div class="s-val" style="color:var(--green)">฿${comm.toLocaleString()}</div>
-        <div class="s-lbl">ค่าคอม</div>
-      </div>
+      <div class="stat-box"><div class="s-val">฿${total.toLocaleString()}</div><div class="s-lbl">รายรับ</div></div>
+      <div class="stat-box"><div class="s-val" style="color:var(--green)">฿${comm.toLocaleString()}</div><div class="s-lbl">ค่าคอม</div></div>
     </div>
     <div class="card" style="background:var(--rose-pale); border-color:var(--rose-light);">
       <div style="font-size:13px; color:var(--ink3); margin-bottom:2px;">ค่าคอมรวม</div>
-      <div style="font-size:32px; font-weight:700; font-family:var(--ff-mono); color:var(--rose);">
-        ฿${comm.toLocaleString()}
-      </div>
-    </div>
-  `;
+      <div style="font-size:32px; font-weight:700; font-family:var(--ff-mono); color:var(--rose);">฿${comm.toLocaleString()}</div>
+    </div>`;
 }
 
 /* ══════════════════════════════════════════════
@@ -876,34 +647,26 @@ async function loadTodayRecords() {
   try {
     const result = await api_getTodayRecords(state.userId);
     if (result.records) state.todayRecs = result.records;
-  } catch (err) {
-    console.warn('loadTodayRecords:', err.message);
-  }
+  } catch (err) { console.warn('loadTodayRecords:', err.message); }
 }
 
 async function loadConfig() {
   try {
     const cfg = await api_getConfig();
     if (cfg) state.config = cfg;
-  } catch (err) {
-    console.warn('loadConfig:', err.message);
-  }
+  } catch (err) { console.warn('loadConfig:', err.message); }
 }
 
 /* ══════════════════════════════════════════════
    UTILITIES
 ══════════════════════════════════════════════ */
-function closeModal(id) {
-  const el = document.getElementById(id);
-  if (el) el.remove();
-}
+function closeModal(id) { const el = document.getElementById(id); if (el) el.remove(); }
 
 let _toastTimer;
 function showToast(msg, type = '') {
   const t = $('toast') || document.querySelector('.toast');
   if (!t) return;
-  t.textContent = msg;
-  t.className   = `toast show ${type}`;
+  t.textContent = msg; t.className = `toast show ${type}`;
   clearTimeout(_toastTimer);
   _toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
 }
@@ -912,26 +675,19 @@ function setupOfflineDetect() {
   const banner = $('offline-banner');
   if (!banner) return;
   function update() { banner.classList.toggle('show', !navigator.onLine); }
-  window.addEventListener('online',  update);
-  window.addEventListener('offline', update);
-  update();
+  window.addEventListener('online', update); window.addEventListener('offline', update); update();
 }
 
 function setupInstallPrompt() {
   window.addEventListener('beforeinstallprompt', e => {
-    e.preventDefault();
-    state.deferredInstallPrompt = e;
-    checkInstallPrompt();
+    e.preventDefault(); state.deferredInstallPrompt = e; checkInstallPrompt();
   });
 }
 
 function checkInstallPrompt() {
-  const prompt = $('install-prompt');
-  if (!prompt) return;
+  const prompt = $('install-prompt'); if (!prompt) return;
   const dismissed = localStorage.getItem('nk_install_dismissed');
-  if (state.deferredInstallPrompt && !dismissed) {
-    prompt.classList.add('show');
-  }
+  if (state.deferredInstallPrompt && !dismissed) prompt.classList.add('show');
 }
 
 function triggerInstall() {
@@ -945,6 +701,5 @@ function triggerInstall() {
 
 function dismissInstall() {
   localStorage.setItem('nk_install_dismissed', '1');
-  const prompt = $('install-prompt');
-  if (prompt) prompt.classList.remove('show');
+  const prompt = $('install-prompt'); if (prompt) prompt.classList.remove('show');
 }
