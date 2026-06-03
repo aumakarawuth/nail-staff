@@ -1,10 +1,11 @@
 /* ═══════════════════════════════════════════════
    app.js — Nail Kloset Staff PWA  (UI v4 — fixed)
    แก้ไข:
-   1. Bottom nav นิ่ง ไม่เลื่อนตาม
-   2. บันทึกงาน ตัดยอดสมาชิกเมื่อชำระแบบ Member
-   3. ค้นหาสมาชิก / สรุปยอด ทำงานถูกต้อง
-   4. ไม่มีปุ่มออกจากระบบ
+   1. Bottom nav นิ่ง ไม่เลื่อนตาม keyboard
+   2. บันทึกงาน → ยอดรายรับ/ค่าคอมเด้งทันที (optimistic update)
+   3. ตัดยอดสมาชิกเมื่อชำระแบบ Member
+   4. ค้นหาสมาชิก / สรุปยอด ทำงานถูกต้อง
+   5. ไม่มีปุ่มออกจากระบบ
 ═══════════════════════════════════════════════ */
 
 const SVC_COLORS = {
@@ -56,12 +57,34 @@ window.addEventListener('DOMContentLoaded', () => {
   registerSW();
   setupOfflineDetect();
   setupInstallPrompt();
+  setupKeyboardDetect(); // FIX 3: keyboard detection
   checkLogin();
 });
 
 function registerSW() {
   if ('serviceWorker' in navigator)
     navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+/* ══════════════════════════════════════════════
+   FIX 3: Keyboard detection — ป้องกัน nav ขึ้น
+   วิธีที่ทำงานได้ทุก browser/OS:
+   - ตรวจ visualViewport resize
+   - ถ้า viewport หดมากกว่า 150px = keyboard เปิด
+══════════════════════════════════════════════ */
+function setupKeyboardDetect() {
+  if (!window.visualViewport) return;
+  const THRESHOLD = 150;
+  const fullH = window.innerHeight;
+
+  window.visualViewport.addEventListener('resize', () => {
+    const diff = fullH - window.visualViewport.height;
+    if (diff > THRESHOLD) {
+      document.body.classList.add('keyboard-open');
+    } else {
+      document.body.classList.remove('keyboard-open');
+    }
+  });
 }
 
 /* ══════════════════════════════════════════════
@@ -143,7 +166,7 @@ async function afterLogin() {
 }
 
 /* ══════════════════════════════════════════════
-   APP SHELL — ไม่มีปุ่มออกจากระบบ
+   APP SHELL
 ══════════════════════════════════════════════ */
 function renderAppShell() {
   const av = state.picture
@@ -180,6 +203,7 @@ function renderAppShell() {
     <div class="toast" id="toast"></div>
   `;
   setupOfflineDetect();
+  setupKeyboardDetect();
   checkInstallPrompt();
 }
 
@@ -210,7 +234,7 @@ function goPage(page) {
    HOME PAGE
 ══════════════════════════════════════════════ */
 function renderHome() {
-  const el   = $('page-home');
+  const el = $('page-home');
   if (!el) return;
   const recs = state.todayRecs.filter(r =>
     !['เติมเงินสมาชิก','เปิดเมมเบอร์ใหม่'].includes(r.service));
@@ -227,16 +251,40 @@ function renderHome() {
     <div class="page-sub">${dateStr}</div>
     <div class="comm-hero">
       <div class="comm-hero-label">ค่าคอมวันนี้</div>
-      <div class="comm-hero-val">฿${comm.toLocaleString()}</div>
-      <div class="comm-hero-sub">${count} รายการ</div>
+      <div class="comm-hero-val" id="home-comm-val">฿${comm.toLocaleString()}</div>
+      <div class="comm-hero-sub" id="home-comm-count">${count} รายการ</div>
     </div>
     <div class="card">
       <div class="card-title">📋 รายการวันนี้</div>
-      ${state.todayRecs.length === 0
-        ? `<div class="empty-state"><span class="empty-icon">📭</span>ยังไม่มีรายการค่ะ</div>`
-        : renderTxItems(state.todayRecs)}
+      <div id="home-tx-list">
+        ${state.todayRecs.length === 0
+          ? `<div class="empty-state"><span class="empty-icon">📭</span>ยังไม่มีรายการค่ะ</div>`
+          : renderTxItems(state.todayRecs)}
+      </div>
     </div>
   `;
+}
+
+/* ══════════════════════════════════════════════
+   FIX 2: อัปเดต home stats ทันที (optimistic)
+   เรียกหลังบันทึกสำเร็จ โดยไม่ต้อง re-render ทั้งหน้า
+══════════════════════════════════════════════ */
+function refreshHomeStats() {
+  const recs  = state.todayRecs.filter(r =>
+    !['เติมเงินสมาชิก','เปิดเมมเบอร์ใหม่'].includes(r.service));
+  const comm  = Math.round(recs.reduce((s,r) => s + r.price*(COMMISSION_RATE[r.service]||0.1), 0));
+  const count = recs.length;
+
+  // ถ้าอยู่หน้า home อยู่แล้ว → update ตัวเลขตรงๆ
+  const commEl  = $('home-comm-val');
+  const countEl = $('home-comm-count');
+  const listEl  = $('home-tx-list');
+
+  if (commEl)  commEl.textContent  = `฿${comm.toLocaleString()}`;
+  if (countEl) countEl.textContent = `${count} รายการ`;
+  if (listEl)  listEl.innerHTML    = state.todayRecs.length === 0
+    ? `<div class="empty-state"><span class="empty-icon">📭</span>ยังไม่มีรายการค่ะ</div>`
+    : renderTxItems(state.todayRecs);
 }
 
 function renderTxItems(recs) {
@@ -441,23 +489,49 @@ async function submitRecord() {
 
   const btn = $('rec-submit-btn');
   btn.disabled = true; btn.textContent = '⏳ กำลังบันทึก...';
+
+  /* ══ FIX 2: Optimistic update — เพิ่มรายการใน local state ทันที ══ */
+  const now     = new Date();
+  const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  const newRec  = {
+    service: svc,
+    price,
+    payment: state.selectedPayment,
+    note,
+    time: timeStr,
+    memberCode: state.recordMember?.memberCode || '',
+    _optimistic: true, // flag = ยังรอ server confirm
+  };
+  state.todayRecs.unshift(newRec); // เพิ่มหัวสุด
+
+  // อัปเดต home ทันทีถ้าอยู่หน้า home อยู่แล้ว
+  if (state.page === 'home') {
+    refreshHomeStats();
+  }
+
   try {
     const payload = {
       userId: state.userId, staffName: state.staffName,
       service: svc, price, payment: state.selectedPayment, note,
     };
     if (state.selectedPayment === 'Member' && state.recordMember) {
-      payload.memberCode = state.recordMember.memberCode;
-      // ส่ง flag ให้ GAS ตัดยอดสมาชิกด้วย
-      payload.deductMember = true;
+      payload.memberCode    = state.recordMember.memberCode;
+      payload.deductMember  = true;
     }
 
     const result = await api_saveRecord(payload);
     if (result.ok === false) throw new Error(result.error || 'บันทึกไม่สำเร็จ');
 
+    // ลบ optimistic flag และ sync id จาก server ถ้ามี
+    const idx = state.todayRecs.findIndex(r => r._optimistic);
+    if (idx !== -1) {
+      state.todayRecs[idx]._optimistic = false;
+      if (result.rowId) state.todayRecs[idx].rowId = result.rowId;
+    }
+
     showToast(`✅ บันทึก ${svc} ฿${price.toLocaleString()} แล้วค่ะ`, 'success');
 
-    // update local member balance ถ้าชำระแบบ Member
+    // อัปเดต local member balance
     if (state.selectedPayment === 'Member' && state.recordMember) {
       state.recordMember.balance -= price;
     }
@@ -465,16 +539,15 @@ async function submitRecord() {
     // reset form
     state.selectedService = '';
     state.recordMember    = null;
-    const priceEl = $('rec-price'); if (priceEl) priceEl.value = '';
-    const noteEl  = $('rec-note');  if (noteEl)  noteEl.value  = '';
-    const prev    = $('rec-preview'); if (prev) prev.innerHTML = '';
-    document.querySelectorAll('.svc-btn').forEach(b => b.classList.remove('active'));
-    const card = $('rec-price-card');
-    if (card) { card.style.opacity='.45'; card.style.pointerEvents='none'; }
 
-    await loadTodayRecords();
+    // navigate ไป home แล้ว refresh จาก server ใน background
     goPage('home');
+    loadTodayRecords().then(() => refreshHomeStats());
+
   } catch(err) {
+    // Rollback optimistic update ถ้า error
+    state.todayRecs = state.todayRecs.filter(r => !r._optimistic);
+    if (state.page === 'home') refreshHomeStats();
     showToast('❌ '+(err.message||'เกิดข้อผิดพลาด'), 'error');
   } finally {
     btn.disabled = false; btn.textContent = '💾 บันทึกรายการ';
@@ -646,7 +719,6 @@ async function doTopup() {
     if (result.ok === false) throw new Error(result.error);
     showToast('✅ เติมเงินสำเร็จค่ะ','success');
     closeModal('topup-modal');
-    // refresh member card
     await searchMember();
     await loadTodayRecords();
   } catch(err) { showToast('❌ '+(err.message||'เกิดข้อผิดพลาด'),'error'); }
@@ -674,7 +746,7 @@ async function registerMember() {
 }
 
 /* ══════════════════════════════════════════════
-   SUMMARY PAGE — แสดงข้อมูลจาก API + fallback local
+   SUMMARY PAGE
 ══════════════════════════════════════════════ */
 function renderSummary() {
   const el = $('page-summary');
@@ -704,20 +776,17 @@ async function loadSummaryPeriod(period, btn) {
   if (!el) return;
   el.innerHTML = `<div class="shimmer" style="height:200px;border-radius:18px;"></div>`;
 
-  // ถ้า period=day ใช้ local records ก่อน (เร็วกว่า + ทำงานแม้ไม่มี GAS endpoint)
   if (period === 'day') {
     buildSummaryFromLocal(el);
-    // ลองดึงจาก API เพิ่มเติม
     try {
       const result = await api_getSummary(state.userId, period);
       if (result && result.comm !== undefined) {
         renderSummaryResult(result, el);
       }
-    } catch(e) { /* ใช้ local ที่แสดงไปแล้ว */ }
+    } catch(e) {}
     return;
   }
 
-  // week / month — ต้องดึงจาก API
   try {
     const result = await api_getSummary(state.userId, period);
     if (result && (result.comm !== undefined || result.byService)) {
@@ -753,7 +822,6 @@ function renderSummaryResult(data, el) {
   if (!el) return;
 
   const comm = data.comm || 0;
-  // รองรับทั้ง byService (object ธรรมดา) และ byServiceDetail (มี count)
   const by   = data.byServiceDetail || data.byService || {};
 
   const rows = Object.entries(by).map(([svc, val]) => {

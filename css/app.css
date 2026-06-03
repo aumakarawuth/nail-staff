@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════
-   Nail Kloset Staff — app.css  UI v4
+   Nail Kloset Staff — app.css  UI v4 (fixed)
 ═══════════════════════════════════════════════ */
 *,*::before,*::after { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
 
@@ -34,23 +34,60 @@
 html { font-size:16px; -webkit-text-size-adjust:100%; }
 body {
   font-family:var(--ff); background:var(--surface); color:var(--ink);
-  height:100vh; height:100dvh; overflow:hidden; -webkit-font-smoothing:antialiased;
+  height:100%; overflow:hidden; -webkit-font-smoothing:antialiased;
 }
 
-/* ── App shell — fixed layout ── */
+/* ══════════════════════════════════════════════
+   FIX 3: Bottom nav ติดขอบ — ใช้ position:fixed
+   แทนการ flex เพื่อให้ keyboard ไม่ดันขึ้น
+══════════════════════════════════════════════ */
+
+/* App shell ไม่ต้อง fixed แล้ว ให้ bottom-nav จัดการเอง */
 #app {
-  display:flex; flex-direction:column;
-  height:100vh; height:100dvh;
-  overflow:hidden;
-  position:fixed; inset:0;
+  display: flex;
+  flex-direction: column;
+  /* ไม่ใช้ height:100vh เพราะ keyboard จะดัน */
+  /* ใช้ position+inset แทน */
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  /* bottom ไม่ระบุ — ปล่อยให้ content ยาวได้ */
+  bottom: 0;
+  overflow: hidden;
 }
 
-/* ── pages-wrap: กินพื้นที่ที่เหลือ scroll ได้ ── */
+/* Top bar + pages-wrap กินพื้นที่ด้านบน */
+.top-bar {
+  flex-shrink: 0;
+}
+
+/* pages-wrap กินพื้นที่ที่เหลือระหว่าง top-bar กับ bottom-nav */
 .pages-wrap {
-  flex:1;
-  overflow:hidden;
-  position:relative;
-  min-height:0; /* สำคัญมาก ให้ flex child หด */
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+  /* padding-bottom เผื่อ bottom nav ที่ fixed */
+  padding-bottom: 0;
+}
+
+/* Bottom nav — FIXED ที่ล่างสุดเสมอ ไม่ขึ้นตาม keyboard */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #fff;
+  border-top: 1.5px solid var(--border);
+  display: flex;
+  padding-bottom: var(--sab);
+  z-index: 100;
+  /* บอก iOS/Android ว่า nav นี้ไม่ใช่ส่วนที่ scroll */
+  will-change: transform;
+}
+
+/* เพิ่ม padding ด้านล่างของ page ให้เนื้อหาไม่ถูก nav บัง */
+.page {
+  padding-bottom: calc(70px + var(--sab) + 24px) !important;
 }
 
 /* ── Loading ── */
@@ -107,12 +144,12 @@ body {
 }
 .login-btn:active { opacity:.85; }
 
-/* ── Top bar — fixed ── */
+/* ── Top bar ── */
 .top-bar {
   background:#fff; border-bottom:1.5px solid var(--border);
   padding:calc(14px + var(--sat)) 18px 14px;
   display:flex; align-items:center; justify-content:space-between;
-  flex-shrink:0; z-index:10;
+  z-index:10;
 }
 .top-logo { font-size:20px; font-weight:700; color:var(--rose); }
 .top-logo small { display:block; font-size:11px; font-weight:400; color:var(--ink3); letter-spacing:.5px; }
@@ -129,17 +166,7 @@ body {
 .staff-chip-avatar-img { width:30px; height:30px; border-radius:50%; object-fit:cover; flex-shrink:0; }
 .staff-chip-name { font-size:14px; font-weight:600; color:var(--rose2); max-width:90px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
-/* ── Bottom nav — FIXED ที่ล่างเสมอ ── */
-.bottom-nav {
-  background:#fff;
-  border-top:1.5px solid var(--border);
-  display:flex;
-  padding-bottom:var(--sab);
-  flex-shrink:0;        /* ห้ามหด */
-  z-index:100;
-  /* ไม่ใช้ position:fixed เพราะ #app เป็น fixed แล้ว
-     แค่ flex-shrink:0 + อยู่ท้าย flex column ก็นิ่งแล้ว */
-}
+/* ── Nav items ── */
 .nav-item {
   flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
   padding:10px 0; background:none; border:none;
@@ -361,7 +388,7 @@ body {
 
 /* ── Toast ── */
 .toast {
-  position:fixed; bottom:calc(80px + var(--sab)); left:50%; transform:translateX(-50%) translateY(8px);
+  position:fixed; bottom:calc(70px + var(--sab) + 12px); left:50%; transform:translateX(-50%) translateY(8px);
   background:var(--ink); color:#fff; padding:12px 24px; border-radius:50px;
   font-size:14px; font-weight:600; opacity:0; pointer-events:none; z-index:9000;
   transition:opacity .2s,transform .2s; white-space:nowrap; max-width:calc(100vw - 40px); text-align:center;
@@ -388,7 +415,7 @@ body {
 
 /* ── Install prompt ── */
 #install-prompt {
-  position:fixed; bottom:calc(70px + var(--sab)); left:16px; right:16px; z-index:400;
+  position:fixed; bottom:calc(70px + var(--sab) + 8px); left:16px; right:16px; z-index:400;
   background:var(--rose); color:#fff; border-radius:var(--radius); padding:16px 18px;
   display:none; align-items:center; gap:14px; box-shadow:0 8px 28px rgba(255,45,111,.4);
 }
@@ -399,6 +426,18 @@ body {
 .install-text small  { font-size:12px; opacity:.85; }
 .install-btn { background:#fff; color:var(--rose); border:none; border-radius:50px; padding:9px 18px; font-family:var(--ff); font-size:13px; font-weight:700; cursor:pointer; flex-shrink:0; }
 .install-dismiss { position:absolute; top:10px; right:12px; background:none; border:none; color:rgba(255,255,255,.6); font-size:18px; cursor:pointer; }
+
+/* ══════════════════════════════════════════════
+   FIX: ป้องกัน keyboard ดัน bottom nav ขึ้น
+   ใช้ interactive-widget=resizes-content บน meta viewport
+   หรือถ้า browser เก่า fallback ด้วย JS class
+══════════════════════════════════════════════ */
+
+/* เมื่อ keyboard เปิด (class เพิ่มโดย JS) ให้ nav ซ่อนอยู่ที่ bottom:0 เสมอ */
+body.keyboard-open .bottom-nav {
+  bottom: 0 !important;
+  transform: none !important;
+}
 
 @media (min-width:480px) { .page{padding:24px 24px 40px;} }
 @media (max-width:360px) { .page-title{font-size:20px;} .comm-hero-val{font-size:34px;} }
