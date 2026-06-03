@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════
-   Nail Kloset Staff — app.css  UI v3 (fixed)
+   Nail Kloset Staff — app.css  UI v4
 ═══════════════════════════════════════════════ */
 *,*::before,*::after { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
 
@@ -37,11 +37,12 @@ body {
   height:100vh; height:100dvh; overflow:hidden; -webkit-font-smoothing:antialiased;
 }
 
-/* ── App shell ── */
+/* ── App shell — fixed layout ── */
 #app {
   display:flex; flex-direction:column;
   height:100vh; height:100dvh;
   overflow:hidden;
+  position:fixed; inset:0;
 }
 
 /* ── pages-wrap: กินพื้นที่ที่เหลือ scroll ได้ ── */
@@ -49,6 +50,7 @@ body {
   flex:1;
   overflow:hidden;
   position:relative;
+  min-height:0; /* สำคัญมาก ให้ flex child หด */
 }
 
 /* ── Loading ── */
@@ -105,7 +107,7 @@ body {
 }
 .login-btn:active { opacity:.85; }
 
-/* ── Top bar ── */
+/* ── Top bar — fixed ── */
 .top-bar {
   background:#fff; border-bottom:1.5px solid var(--border);
   padding:calc(14px + var(--sat)) 18px 14px;
@@ -127,12 +129,16 @@ body {
 .staff-chip-avatar-img { width:30px; height:30px; border-radius:50%; object-fit:cover; flex-shrink:0; }
 .staff-chip-name { font-size:14px; font-weight:600; color:var(--rose2); max-width:90px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
-/* ── Bottom nav — fixed ที่ล่างเสมอ ── */
+/* ── Bottom nav — FIXED ที่ล่างเสมอ ── */
 .bottom-nav {
-  background:#fff; border-top:1.5px solid var(--border);
-  display:flex; padding-bottom:var(--sab);
-  flex-shrink:0; z-index:10;
-  /* ไม่มี position:fixed เพราะอยู่ใน flex column แล้ว */
+  background:#fff;
+  border-top:1.5px solid var(--border);
+  display:flex;
+  padding-bottom:var(--sab);
+  flex-shrink:0;        /* ห้ามหด */
+  z-index:100;
+  /* ไม่ใช้ position:fixed เพราะ #app เป็น fixed แล้ว
+     แค่ flex-shrink:0 + อยู่ท้าย flex column ก็นิ่งแล้ว */
 }
 .nav-item {
   flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
@@ -228,7 +234,7 @@ body {
 /* ── Member lookup in record ── */
 .member-lookup-card {
   background:var(--blue-pale); border-color:#B8D0FF;
-  padding:14px; margin-top:0; margin-bottom:0;
+  padding:14px; margin-top:0; margin-bottom:16px;
 }
 .rec-member-info {
   margin-top:10px; background:#fff; border-radius:var(--radius-sm);
@@ -331,6 +337,7 @@ body {
 }
 .summary-dot { width:10px; height:10px; border-radius:3px; flex-shrink:0; }
 .summary-svc { flex:1; font-size:14px; color:var(--ink2); font-weight:500; }
+.summary-count { font-size:12px; color:var(--ink3); margin-right:8px; }
 .summary-comm { font-size:16px; font-weight:700; font-family:var(--ff-mono); color:var(--rose); }
 
 /* ── Fallback notice ── */
@@ -376,7 +383,7 @@ body {
 .empty-icon { font-size:44px; display:block; margin-bottom:10px; }
 
 /* ── Offline banner ── */
-#offline-banner { background:#FF9800; color:#fff; padding:8px 18px; text-align:center; font-size:13px; font-weight:600; display:none; }
+#offline-banner { background:#FF9800; color:#fff; padding:8px 18px; text-align:center; font-size:13px; font-weight:600; display:none; flex-shrink:0; }
 #offline-banner.show { display:block; }
 
 /* ── Install prompt ── */
