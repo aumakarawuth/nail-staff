@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════
-   app.js — Nail Kloset Staff PWA  (UI v3)
+   app.js — Nail Kloset Staff PWA  (UI v3 — fixed)
 ═══════════════════════════════════════════════ */
 
 const SVC_COLORS = {
@@ -29,6 +29,7 @@ const PAYMENT_LIST = [
   { id: 'Cash',     label: '💵 สด' },
   { id: 'Transfer', label: '📲 โอน' },
   { id: 'Credit',   label: '💳 รูด' },
+  { id: 'Member',   label: '💳 เมมเบอร์' },
 ];
 
 const state = {
@@ -37,6 +38,7 @@ const state = {
   todayRecs: [], config: {},
   member: null, selectedPayment: 'Cash',
   selectedService: '',
+  recordMember: null,
   deferredInstallPrompt: null,
 };
 
@@ -128,12 +130,9 @@ async function doLogin() {
 async function afterLogin() {
   $('login-screen').classList.remove('show');
   renderAppShell();
-  // โหลด config เงียบๆ ไม่รอ
   loadConfig().catch(() => {});
-  // แสดงหน้า record ก่อนเลย ไม่รอ API
   hideLoading();
   goPage('record');
-  // โหลด records หลัง UI ขึ้นแล้ว
   loadTodayRecords().then(() => {
     if (state.page === 'home') renderHome();
   });
@@ -162,10 +161,12 @@ function renderAppShell() {
         <div class="top-logo">💅 Nail Kloset<small>Staff Portal</small></div>
         <div class="staff-chip">${av}<div class="staff-chip-name">${state.staffName}</div></div>
       </div>
-      <div id="page-home"    class="page"></div>
-      <div id="page-record"  class="page"></div>
-      <div id="page-member"  class="page"></div>
-      <div id="page-summary" class="page"></div>
+      <div class="pages-wrap">
+        <div id="page-home"    class="page"></div>
+        <div id="page-record"  class="page"></div>
+        <div id="page-member"  class="page"></div>
+        <div id="page-summary" class="page"></div>
+      </div>
       <nav class="bottom-nav">
         <button class="nav-item" id="nav-home"    onclick="goPage('home')">   <span class="icon">🏠</span>หน้าหลัก</button>
         <button class="nav-item active" id="nav-record" onclick="goPage('record')"><span class="icon">✏️</span>บันทึกงาน</button>
@@ -209,7 +210,7 @@ function goPage(page) {
 }
 
 /* ══════════════════════════════════════════════
-   HOME PAGE — แสดงค่าคอมอย่างเดียว
+   HOME PAGE
 ══════════════════════════════════════════════ */
 function renderHome() {
   const el   = $('page-home');
@@ -239,10 +240,6 @@ function renderHome() {
         ? `<div class="empty-state"><span class="empty-icon">📭</span>ยังไม่มีรายการค่ะ</div>`
         : renderTxItems(state.todayRecs)}
     </div>
-
-    <button class="btn-secondary" onclick="doLogout()" style="margin-top:4px">
-      🚪 ออกจากระบบ
-    </button>
   `;
 }
 
@@ -272,7 +269,7 @@ function renderTxItems(recs) {
 }
 
 /* ══════════════════════════════════════════════
-   RECORD PAGE — ปุ่มเลือกบริการ ไม่มี dropdown
+   RECORD PAGE — มีตัดยอดสมาชิกด้วย
 ══════════════════════════════════════════════ */
 function renderRecord() {
   const el = $('page-record');
@@ -311,6 +308,19 @@ function renderRecord() {
         </div>
       </div>
 
+      <!-- Member section — แสดงเมื่อเลือก Member -->
+      <div id="rec-member-section" style="display:${state.selectedPayment==='Member'?'block':'none'}">
+        <div class="card member-lookup-card">
+          <div class="form-label" style="margin-bottom:8px">🔍 ค้นหาสมาชิก (รหัส 4 หลัก)</div>
+          <div class="search-row">
+            <input class="form-input" id="rec-mem-code" type="number"
+              inputmode="numeric" placeholder="0000" maxlength="4">
+            <button class="btn-search" onclick="lookupRecordMember()">ค้นหา</button>
+          </div>
+          <div id="rec-mem-result"></div>
+        </div>
+      </div>
+
       <div class="form-group">
         <label class="form-label">📝 หมายเหตุ</label>
         <input class="form-input" id="rec-note" type="text" placeholder="เช่น สีที่ต้องการ">
@@ -325,15 +335,14 @@ function renderRecord() {
   `;
 
   $('rec-price')?.addEventListener('input', updateCommPreview);
+  $('rec-mem-code')?.addEventListener('keydown', e => { if(e.key==='Enter') lookupRecordMember(); });
 }
 
 function selectService(svcId) {
   state.selectedService = svcId;
-  // อัปเดตปุ่ม active
   document.querySelectorAll('.svc-btn').forEach(btn => {
     btn.classList.toggle('active', btn.querySelector('.svc-label').textContent === svcId);
   });
-  // ปลดล็อค price card
   const card = $('rec-price-card');
   if (card) { card.style.opacity='1'; card.style.pointerEvents='auto'; }
   $('rec-price')?.focus();
@@ -345,6 +354,41 @@ function selectPayment(payId) {
   document.querySelectorAll('.pay-chip').forEach(btn => {
     btn.classList.toggle('active', btn.getAttribute('data-pay') === payId);
   });
+  // แสดง/ซ่อน member section
+  const sec = $('rec-member-section');
+  if (sec) sec.style.display = payId === 'Member' ? 'block' : 'none';
+  if (payId !== 'Member') {
+    state.recordMember = null;
+    const res = $('rec-mem-result');
+    if (res) res.innerHTML = '';
+  }
+  updateCommPreview();
+}
+
+async function lookupRecordMember() {
+  const code = $('rec-mem-code')?.value.trim();
+  if (!code || code.length !== 4) { showToast('กรอกรหัส 4 หลักด้วยค่ะ','error'); return; }
+  const el = $('rec-mem-result');
+  el.innerHTML = `<div class="shimmer" style="height:60px;margin-top:10px;"></div>`;
+  try {
+    const result = await api_getMemberByCode(code);
+    if (!result?.found) {
+      el.innerHTML = `<div class="mem-not-found">ไม่พบสมาชิกรหัส <strong>${code}</strong></div>`;
+      state.recordMember = null;
+      return;
+    }
+    state.recordMember = result;
+    const low = result.balance < 500;
+    el.innerHTML = `
+      <div class="rec-member-info ${low?'low-balance':''}">
+        <div class="rec-member-name">✅ ${result.name}</div>
+        <div class="rec-member-bal">ยอดคงเหลือ: <strong style="color:${low?'#EF4444':'#0FBA75'}">฿${result.balance.toLocaleString()}</strong></div>
+        ${low ? `<div class="rec-member-warn">⚠️ ยอดใกล้หมดค่ะ</div>` : ''}
+      </div>`;
+    updateCommPreview();
+  } catch(err) {
+    el.innerHTML = `<div class="mem-not-found">⚠️ ${err.message||'เชื่อมต่อไม่ได้'}</div>`;
+  }
 }
 
 function updateCommPreview() {
@@ -354,15 +398,27 @@ function updateCommPreview() {
   const comm  = Math.round(price * rate);
   const el    = $('rec-preview');
   if (!el) return;
+
+  let memberWarn = '';
+  if (state.selectedPayment === 'Member' && state.recordMember && price > 0) {
+    const after = state.recordMember.balance - price;
+    memberWarn = `
+      <div class="member-deduct-preview ${after<0?'overdrawn':''}">
+        <span>หักจากเมมเบอร์</span>
+        <span>฿${state.recordMember.balance.toLocaleString()} → <strong>฿${after.toLocaleString()}</strong></span>
+      </div>`;
+  }
+
   if (svc && price > 0) {
     el.innerHTML = `
       <div class="comm-preview">
         <span class="comm-preview-label">ค่าคอม</span>
         <span class="comm-preview-val">฿${comm.toLocaleString()}</span>
         <span class="comm-preview-rate">${(rate*100).toFixed(0)}%</span>
-      </div>`;
+      </div>
+      ${memberWarn}`;
   } else {
-    el.innerHTML = '';
+    el.innerHTML = memberWarn;
   }
 }
 
@@ -373,17 +429,35 @@ async function submitRecord() {
   if (!svc)       { showToast('เลือกบริการก่อนนะคะ','error'); return; }
   if (price <= 0) { showToast('กรุณากรอกราคาค่ะ','error');    return; }
 
+  // ถ้าเลือกชำระแบบ Member ต้องมีสมาชิก
+  if (state.selectedPayment === 'Member') {
+    if (!state.recordMember) {
+      showToast('กรุณาค้นหาสมาชิกก่อนค่ะ','error'); return;
+    }
+    if (state.recordMember.balance < price) {
+      showToast('ยอดเมมเบอร์ไม่พอค่ะ','error'); return;
+    }
+  }
+
   const btn = $('rec-submit-btn');
   btn.disabled = true; btn.textContent = '⏳ กำลังบันทึก...';
   try {
-    const result = await api_saveRecord({
+    const payload = {
       userId: state.userId, staffName: state.staffName,
       service: svc, price, payment: state.selectedPayment, note,
-    });
+    };
+    // ส่ง memberCode ด้วยถ้าชำระแบบ Member
+    if (state.selectedPayment === 'Member' && state.recordMember) {
+      payload.memberCode = state.recordMember.memberCode;
+    }
+
+    const result = await api_saveRecord(payload);
     if (result.ok === false) throw new Error(result.error);
     showToast(`✅ บันทึก ${svc} ฿${price.toLocaleString()} แล้วค่ะ`,'success');
+
     // reset
     state.selectedService = '';
+    state.recordMember    = null;
     $('rec-price').value  = '';
     $('rec-note').value   = '';
     $('rec-preview').innerHTML = '';
@@ -512,7 +586,7 @@ function showTopupModal() {
         <div class="form-group">
           <label class="form-label">ช่องทางชำระ</label>
           <div class="pay-chips">
-            ${PAYMENT_LIST.map(p=>`
+            ${PAYMENT_LIST.filter(p=>p.id!=='Member').map(p=>`
               <button class="pay-chip ${p.id==='Cash'?'active':''}"
                 onclick="selectTopupPay('${p.id}')" data-tpay="${p.id}">
                 ${p.label}
@@ -584,12 +658,12 @@ async function registerMember() {
     });
     if (result.ok === false) throw new Error(result.error);
     showToast(`✅ สมัครสมาชิก ${name} รหัส ${code} สำเร็จค่ะ`,'success');
-    ['reg-phone','reg-name','reg-code','reg-amount'].forEach(id => { $( id).value=''; });
+    ['reg-phone','reg-name','reg-code','reg-amount'].forEach(id => { $(id).value=''; });
   } catch(err) { showToast('❌ '+(err.message||'เกิดข้อผิดพลาด'),'error'); }
 }
 
 /* ══════════════════════════════════════════════
-   SUMMARY PAGE — แสดงค่าคอมอย่างเดียว
+   SUMMARY PAGE
 ══════════════════════════════════════════════ */
 function renderSummary() {
   const el = $('page-summary');
@@ -597,16 +671,16 @@ function renderSummary() {
     <div class="page-title">📊 สรุป<span>ยอด</span></div>
     <div class="page-sub">ค่าคอมของ ${state.staffName}</div>
     <div class="period-tabs">
-      <button class="period-tab active" onclick="loadSummaryPeriod('day',this)">วันนี้</button>
-      <button class="period-tab" onclick="loadSummaryPeriod('week',this)">อาทิตย์นี้</button>
-      <button class="period-tab" onclick="loadSummaryPeriod('month',this)">เดือนนี้</button>
+      <button class="period-tab active" id="tab-day"   onclick="loadSummaryPeriod('day',this)">วันนี้</button>
+      <button class="period-tab"        id="tab-week"  onclick="loadSummaryPeriod('week',this)">อาทิตย์นี้</button>
+      <button class="period-tab"        id="tab-month" onclick="loadSummaryPeriod('month',this)">เดือนนี้</button>
     </div>
     <div id="summary-content">
       <div class="shimmer" style="height:140px;margin-bottom:14px;"></div>
       <div class="shimmer" style="height:180px;"></div>
     </div>
   `;
-  loadSummaryPeriod('day');
+  loadSummaryPeriod('day', $('tab-day'));
 }
 
 async function loadSummaryPeriod(period, btn) {
@@ -615,11 +689,20 @@ async function loadSummaryPeriod(period, btn) {
     btn.classList.add('active');
   }
   const el = $('summary-content');
+  if (!el) return;
   el.innerHTML = `<div class="shimmer" style="height:200px;"></div>`;
   try {
     const result = await api_getSummary(state.userId, period);
-    renderSummaryResult(result);
-  } catch { fallbackSummary(el); }
+    if (result && (result.comm !== undefined || result.byService)) {
+      renderSummaryResult(result);
+    } else {
+      // GAS ไม่ได้ return ข้อมูลตามที่คาด → fallback ใช้ local records
+      fallbackSummary(el);
+    }
+  } catch(e) {
+    console.warn('summary API error:', e.message);
+    fallbackSummary(el);
+  }
 }
 
 function fallbackSummary(el) {
@@ -628,18 +711,20 @@ function fallbackSummary(el) {
   const comm = Math.round(recs.reduce((s,r)=>s+r.price*(COMMISSION_RATE[r.service]||0.1),0));
   const byService = {};
   recs.forEach(r => { byService[r.service] = (byService[r.service]||0) + r.price; });
-  renderSummaryResult({ comm, byService, count: recs.length });
+  renderSummaryResult({ comm, byService, count: recs.length, isFallback: true });
 }
 
 function renderSummaryResult(data) {
   const el   = $('summary-content');
+  if (!el) return;
   const comm = data.comm || 0;
   const by   = data.byService || {};
   el.innerHTML = `
+    ${data.isFallback ? `<div class="fallback-notice">⚠️ แสดงข้อมูลจาก cache (วันนี้เท่านั้น)</div>` : ''}
     <div class="comm-hero">
       <div class="comm-hero-label">ค่าคอมรวม</div>
       <div class="comm-hero-val">฿${comm.toLocaleString()}</div>
-      ${data.count ? `<div class="comm-hero-sub">${data.count} รายการ</div>` : ''}
+      ${data.count !== undefined ? `<div class="comm-hero-sub">${data.count} รายการ</div>` : ''}
     </div>
     ${Object.keys(by).length > 0 ? `
     <div class="card">
@@ -655,7 +740,7 @@ function renderSummaryResult(data) {
             <div class="summary-comm">฿${c.toLocaleString()}</div>
           </div>`;
       }).join('')}
-    </div>` : ''}
+    </div>` : `<div class="card"><div class="empty-state"><span class="empty-icon">📭</span>ยังไม่มีรายการค่ะ</div></div>`}
   `;
 }
 
@@ -665,8 +750,8 @@ function renderSummaryResult(data) {
 async function loadTodayRecords() {
   try {
     const r = await api_getTodayRecords(state.userId);
-    if (r.records) state.todayRecs = r.records;
-  } catch(e) { console.warn(e.message); }
+    if (r && r.records) state.todayRecs = r.records;
+  } catch(e) { console.warn('loadTodayRecords:', e.message); }
 }
 
 async function loadConfig() {

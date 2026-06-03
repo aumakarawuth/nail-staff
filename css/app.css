@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════
-   Nail Kloset Staff — app.css  UI v3
+   Nail Kloset Staff — app.css  UI v3 (fixed)
 ═══════════════════════════════════════════════ */
 *,*::before,*::after { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
 
@@ -38,7 +38,18 @@ body {
 }
 
 /* ── App shell ── */
-#app { display:flex; flex-direction:column; height:100vh; height:100dvh; overflow:hidden; }
+#app {
+  display:flex; flex-direction:column;
+  height:100vh; height:100dvh;
+  overflow:hidden;
+}
+
+/* ── pages-wrap: กินพื้นที่ที่เหลือ scroll ได้ ── */
+.pages-wrap {
+  flex:1;
+  overflow:hidden;
+  position:relative;
+}
 
 /* ── Loading ── */
 #loading-screen {
@@ -116,10 +127,12 @@ body {
 .staff-chip-avatar-img { width:30px; height:30px; border-radius:50%; object-fit:cover; flex-shrink:0; }
 .staff-chip-name { font-size:14px; font-weight:600; color:var(--rose2); max-width:90px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
-/* ── Bottom nav ── */
+/* ── Bottom nav — fixed ที่ล่างเสมอ ── */
 .bottom-nav {
   background:#fff; border-top:1.5px solid var(--border);
-  display:flex; padding-bottom:var(--sab); flex-shrink:0; z-index:10;
+  display:flex; padding-bottom:var(--sab);
+  flex-shrink:0; z-index:10;
+  /* ไม่มี position:fixed เพราะอยู่ใน flex column แล้ว */
 }
 .nav-item {
   flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
@@ -131,7 +144,14 @@ body {
 .nav-item.active { color:var(--rose); }
 
 /* ── Pages ── */
-.page { display:none; flex:1; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; padding:20px 18px 32px; animation:slideUp .22s ease both; }
+.page {
+  display:none;
+  position:absolute; inset:0;
+  overflow-y:auto; overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;
+  padding:20px 18px 32px;
+  animation:slideUp .22s ease both;
+}
 .page.active { display:block; }
 @keyframes slideUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
 
@@ -143,7 +163,7 @@ body {
 .card { background:var(--card); border:1.5px solid var(--border); border-radius:var(--radius); padding:18px; margin-bottom:14px; box-shadow:var(--shadow-sm); }
 .card-title { font-size:11px; font-weight:700; color:var(--ink3); text-transform:uppercase; letter-spacing:.8px; margin-bottom:14px; }
 
-/* ── Comm hero (หน้าหลัก + สรุป) ── */
+/* ── Comm hero ── */
 .comm-hero {
   background:linear-gradient(135deg,var(--rose),var(--rose2));
   border-radius:var(--radius); padding:24px 20px; margin-bottom:14px;
@@ -187,11 +207,41 @@ body {
 .comm-preview {
   display:flex; align-items:center; gap:10px;
   background:var(--rose-pale); border:1.5px solid var(--rose-light);
-  border-radius:var(--radius-sm); padding:12px 16px; margin-bottom:16px;
+  border-radius:var(--radius-sm); padding:12px 16px; margin-bottom:12px;
 }
 .comm-preview-label { font-size:12px; color:var(--ink3); font-weight:600; flex:1; }
 .comm-preview-val { font-size:22px; font-weight:700; font-family:var(--ff-mono); color:var(--rose); }
 .comm-preview-rate { font-size:12px; color:var(--ink3); }
+
+/* ── Member deduct preview ── */
+.member-deduct-preview {
+  display:flex; justify-content:space-between; align-items:center;
+  background:var(--blue-pale); border:1.5px solid #B8D0FF;
+  border-radius:var(--radius-sm); padding:10px 14px; margin-bottom:12px;
+  font-size:13px; color:var(--blue);
+}
+.member-deduct-preview.overdrawn {
+  background:#FEE2E2; border-color:#FCA5A5; color:#DC2626;
+}
+.member-deduct-preview strong { font-family:var(--ff-mono); }
+
+/* ── Member lookup in record ── */
+.member-lookup-card {
+  background:var(--blue-pale); border-color:#B8D0FF;
+  padding:14px; margin-top:0; margin-bottom:0;
+}
+.rec-member-info {
+  margin-top:10px; background:#fff; border-radius:var(--radius-sm);
+  padding:12px 14px; border:1.5px solid var(--green);
+}
+.rec-member-info.low-balance { border-color:#FCA5A5; }
+.rec-member-name { font-size:15px; font-weight:700; color:var(--ink); margin-bottom:3px; }
+.rec-member-bal { font-size:13px; color:var(--ink3); }
+.rec-member-warn { font-size:12px; color:#EF4444; margin-top:4px; }
+.mem-not-found {
+  margin-top:10px; background:#FEE2E2; border-radius:var(--radius-sm);
+  padding:10px 14px; font-size:13px; color:#DC2626;
+}
 
 /* ── Payment chips ── */
 .pay-chips { display:flex; gap:8px; flex-wrap:wrap; }
@@ -282,6 +332,12 @@ body {
 .summary-dot { width:10px; height:10px; border-radius:3px; flex-shrink:0; }
 .summary-svc { flex:1; font-size:14px; color:var(--ink2); font-weight:500; }
 .summary-comm { font-size:16px; font-weight:700; font-family:var(--ff-mono); color:var(--rose); }
+
+/* ── Fallback notice ── */
+.fallback-notice {
+  background:#FEF3DC; border:1.5px solid #F5A623; border-radius:var(--radius-sm);
+  padding:10px 14px; font-size:12px; color:#92400E; margin-bottom:12px; text-align:center;
+}
 
 /* ── Modal ── */
 .modal-bg { display:none; position:fixed; inset:0; background:rgba(19,10,26,.6); z-index:500; align-items:flex-end; backdrop-filter:blur(4px); }
