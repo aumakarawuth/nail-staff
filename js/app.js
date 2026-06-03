@@ -26,11 +26,6 @@ const PAYMENT_LIST = [
   { id: 'Credit',   label: '💳 รูด' },
 ];
 
-/* ── LINE CONFIG ── */
-const LINE_CHANNEL_ID  = '2009606226';
-const LINE_REDIRECT_URI = 'https://aumakarawuth.github.io/nail-staff/';
-
-/* ── STATE ── */
 const state = {
   userId: null, staffName: null, picture: '',
   page: 'home', todayRecs: [], config: {},
@@ -43,65 +38,12 @@ const $ = id => document.getElementById(id);
 /* ══════════════════════════════════════════════
    INIT
 ══════════════════════════════════════════════ */
-
-const LIFF_ID = '2009606226-SB5pY3tO'; // ← ใส่ LIFF ID ที่ได้
-
-
-window.addEventListener('DOMContentLoaded', async () => {
+window.addEventListener('DOMContentLoaded', () => {
   registerSW();
   setupOfflineDetect();
   setupInstallPrompt();
-
-  // ตรวจ session เดิมก่อน
-  const savedUser = localStorage.getItem('nk_staff_userId');
-  const savedName = localStorage.getItem('nk_staff_name');
-  if (savedUser && savedName) {
-    state.userId    = savedUser;
-    state.staffName = savedName;
-    state.picture   = localStorage.getItem('nk_staff_picture') || '';
-    afterLogin();
-    return;
-  }
-
-  // ยังไม่ login → init LIFF
-  showLoginScreen();
+  checkLogin();
 });
-
-async function loginWithLine() {
-  try {
-    await liff.init({ liffId: LIFF_ID });
-
-    if (!liff.isLoggedIn()) {
-      // บน PWA standalone จะไม่ redirect ออก — เปิด LINE Login ใน popup แทน
-      liff.login();
-      return;
-    }
-
-    // ได้ login แล้ว → ดึง profile
-    $('loading-screen').classList.remove('out');
-    $('loading-screen').querySelector('.load-sub').textContent = 'กำลังเข้าสู่ระบบ...';
-
-    const profile = await liff.getProfile();
-
-    const verifyResult = await api_verifyStaff(profile.userId, profile.displayName);
-    if (verifyResult.ok === false) throw new Error(verifyResult.error || 'ไม่พบบัญชีพนักงาน');
-
-    const displayName = verifyResult.staffName || profile.displayName;
-    localStorage.setItem('nk_staff_userId',  profile.userId);
-    localStorage.setItem('nk_staff_name',    displayName);
-    localStorage.setItem('nk_staff_picture', profile.pictureUrl || '');
-
-    state.userId    = profile.userId;
-    state.staffName = displayName;
-    state.picture   = profile.pictureUrl || '';
-
-    afterLogin();
-
-  } catch (err) {
-    $('loading-screen').classList.add('out');
-    showToast('❌ ' + err.message, 'error');
-  }
-}
 
 function registerSW() {
   if ('serviceWorker' in navigator) {
@@ -110,90 +52,8 @@ function registerSW() {
 }
 
 /* ══════════════════════════════════════════════
-   LINE LOGIN — แลก token ใน browser โดยตรง
-   ไม่ผ่าน GAS เพื่อหลีกเลี่ยง cold start timeout
+   LOGIN
 ══════════════════════════════════════════════ */
-function loginWithLine() {
-  const oauthState = Math.random().toString(36).substring(2, 15);
-  sessionStorage.setItem('line_oauth_state', oauthState);
-
-  const params = new URLSearchParams({
-    response_type: 'code',
-    client_id:     LINE_CHANNEL_ID,
-    redirect_uri:  LINE_REDIRECT_URI,
-    state:         oauthState,
-    scope:         'profile',
-  });
-  window.location.href = `https://access.line.me/oauth2/v2.1/authorize?${params}`;
-}
-
-async function handleLineCallback(code, returnedState) {
-  // ตรวจ state
-  const savedState = sessionStorage.getItem('line_oauth_state');
-  sessionStorage.removeItem('line_oauth_state');
-  if (savedState && returnedState && savedState !== returnedState) {
-    showLoginScreen();
-    showToast('⚠️ OAuth state ไม่ตรง กรุณาลองใหม่', 'error');
-    return;
-  }
-
-  $('loading-screen').classList.remove('out');
-  $('loading-screen').querySelector('.load-sub').textContent = 'กำลังเข้าสู่ระบบ...';
-
-  try {
-    /* ── Step 1: แลก code → access_token ใน browser โดยตรง ── */
-    const tokenRes = await fetch('https://api.line.me/oauth2/v2.1/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type:   'authorization_code',
-        code:         code,
-        redirect_uri: LINE_REDIRECT_URI,
-        client_id:    LINE_CHANNEL_ID,
-        // ไม่ส่ง client_secret — LINE Login รองรับ public client
-        // ถ้า error ให้ดูขั้นตอนถัดไปด้านล่าง
-      }),
-    });
-
-    const tokenData = await tokenRes.json();
-    if (!tokenData.access_token) {
-      throw new Error(tokenData.error_description || 'แลก token ไม่ได้');
-    }
-
-    /* ── Step 2: ดึง profile ── */
-    const profileRes = await fetch('https://api.line.me/v2/profile', {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
-    });
-
-    const profile = await profileRes.json();
-    if (!profile.userId) throw new Error('ดึง profile ไม่ได้');
-
-    /* ── Step 3: ตรวจสอบกับ GAS ว่าเป็นพนักงานจริง ── */
-    const verifyResult = await api_verifyStaff(profile.userId, profile.displayName);
-    if (verifyResult.ok === false) {
-      throw new Error(verifyResult.error || 'ไม่พบบัญชีพนักงาน');
-    }
-
-    // บันทึก session
-    const displayName = verifyResult.staffName || profile.displayName;
-    localStorage.setItem('nk_staff_userId',  profile.userId);
-    localStorage.setItem('nk_staff_name',    displayName);
-    localStorage.setItem('nk_staff_picture', profile.pictureUrl || '');
-
-    state.userId    = profile.userId;
-    state.staffName = displayName;
-    state.picture   = profile.pictureUrl || '';
-
-    afterLogin();
-
-  } catch (err) {
-    $('loading-screen').classList.add('out');
-    showLoginScreen();
-    showToast('❌ ' + err.message, 'error');
-  }
-}
-
-/* ── Login check ── */
 function checkLogin() {
   const savedUser = localStorage.getItem('nk_staff_userId');
   const savedName = localStorage.getItem('nk_staff_name');
@@ -219,19 +79,51 @@ function renderLoginForm() {
     <div class="login-sub">Staff Portal</div>
     <div class="login-card">
       <div class="login-desc">
-        เข้าสู่ระบบด้วยบัญชี LINE ของคุณ<br>
-        <small>ระบบจะดึงชื่อและ ID จาก LINE อัตโนมัติ</small>
+        ใส่ข้อมูลพนักงานครั้งแรกครั้งเดียว<br>
+        <small>ระบบจะจำการเข้าสู่ระบบไว้อัตโนมัติ</small>
       </div>
-      <button class="btn-line" onclick="loginWithLine()">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-          <rect width="24" height="24" rx="6" fill="#06C755"/>
-          <path d="M20 10.5C20 6.9 16.4 4 12 4C7.6 4 4 6.9 4 10.5C4 13.7 6.8 16.4 10.7 17.1L11.5 17.9L11.5 19.4C11.5 19.7 11.8 19.9 12.1 19.8L13.9 18.9C17.4 18.1 20 14.6 20 10.5Z" fill="white"/>
-        </svg>
-        เข้าสู่ระบบด้วย LINE
+
+      <label class="form-label">ชื่อพนักงาน</label>
+      <input class="login-input" id="li-name" type="text"
+        placeholder="เช่น Alex" autocomplete="off">
+
+      <label class="form-label" style="margin-top:4px;">LINE UserID</label>
+      <input class="login-input" id="li-userid" type="text"
+        placeholder="U…" autocomplete="off"
+        style="font-family: monospace; font-size:14px;">
+
+      <div class="login-hint">
+        💡 ดู LINE UserID ได้จาก Sheet "พนักงาน" คอลัมน์ A
+      </div>
+
+      <button class="btn-primary" style="margin-top:8px" onclick="doLogin()">
+        เข้าสู่ระบบ →
       </button>
-      <div class="login-note">ต้องเป็นบัญชี LINE ที่ลงทะเบียนกับ Nail Kloset แล้วเท่านั้น</div>
     </div>
   `;
+
+  // กด Enter ที่ช่องไหนก็ login ได้
+  setTimeout(() => {
+    $('li-name')  ?.addEventListener('keydown', e => { if (e.key === 'Enter') $('li-userid').focus(); });
+    $('li-userid')?.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  }, 50);
+}
+
+async function doLogin() {
+  const name   = $('li-name').value.trim();
+  const userId = $('li-userid').value.trim();
+  if (!name)   { showToast('กรุณากรอกชื่อพนักงานค่ะ', 'error'); $('li-name').focus();   return; }
+  if (!userId) { showToast('กรุณากรอก LINE UserID ค่ะ', 'error'); $('li-userid').focus(); return; }
+  if (!userId.startsWith('U')) {
+    showToast('LINE UserID ต้องขึ้นต้นด้วย U ค่ะ', 'error');
+    $('li-userid').focus(); return;
+  }
+
+  localStorage.setItem('nk_staff_name',   name);
+  localStorage.setItem('nk_staff_userId', userId);
+  state.staffName = name;
+  state.userId    = userId;
+  afterLogin();
 }
 
 async function afterLogin() {
@@ -334,11 +226,22 @@ function renderHome() {
     <div class="page-title">สวัสดี <span>${state.staffName}</span> 👋</div>
     <div class="page-sub" id="home-date-lbl">—</div>
     <div class="stat-row">
-      <div class="stat-box"><div class="s-val">฿${total.toLocaleString()}</div><div class="s-lbl">รายรับวันนี้</div></div>
-      <div class="stat-box"><div class="s-val" style="color:var(--green)">฿${commTotal.toLocaleString()}</div><div class="s-lbl">ค่าคอมรวม</div></div>
-      <div class="stat-box"><div class="s-val" style="color:var(--purple)">${count}</div><div class="s-lbl">รายการ</div></div>
+      <div class="stat-box">
+        <div class="s-val">฿${total.toLocaleString()}</div>
+        <div class="s-lbl">รายรับวันนี้</div>
+      </div>
+      <div class="stat-box">
+        <div class="s-val" style="color:var(--green)">฿${commTotal.toLocaleString()}</div>
+        <div class="s-lbl">ค่าคอมรวม</div>
+      </div>
+      <div class="stat-box">
+        <div class="s-val" style="color:var(--purple)">${count}</div>
+        <div class="s-lbl">รายการ</div>
+      </div>
     </div>
-    <button class="btn-primary" onclick="goPage('record')" style="margin-bottom:16px">✏️ บันทึกงานใหม่</button>
+    <button class="btn-primary" onclick="goPage('record')" style="margin-bottom:16px">
+      ✏️ บันทึกงานใหม่
+    </button>
     <div class="card">
       <div class="card-title">📋 รายการวันนี้</div>
       <div id="home-tx-list">
@@ -347,10 +250,12 @@ function renderHome() {
           : renderTxItems(state.todayRecs)}
       </div>
     </div>
-    <button class="btn-secondary" onclick="doLogout()" style="margin-top:8px">🚪 ออกจากระบบ</button>
+    <button class="btn-secondary" onclick="doLogout()" style="margin-top:8px">
+      🚪 ออกจากระบบ
+    </button>
   `;
 
-  const now = new Date();
+  const now    = new Date();
   const DAYS   = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
   const MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
   $('home-date-lbl').textContent =
@@ -361,9 +266,13 @@ function renderTxItems(recs) {
   return recs.map(r => {
     const isMemSvc   = ['เติมเงินสมาชิก','เปิดเมมเบอร์ใหม่'].includes(r.service);
     const comm       = isMemSvc ? '' : ` · คอม ฿${Math.round(r.price*(COMMISSION_RATE[r.service]||0.1)).toLocaleString()}`;
-    const badgeClass = r.payment === 'Member' ? 'badge-member' : r.payment === 'Transfer' ? 'badge-credit' : r.payment === 'Credit' ? 'badge-credit' : 'badge-cash';
-    const badgeLabel = r.payment === 'Member' ? 'เมม' : r.payment === 'Transfer' ? 'โอน' : r.payment === 'Credit' ? 'รูด' : 'สด';
-    const col        = SVC_COLORS[r.service] || '#999';
+    const badgeClass = r.payment === 'Member'   ? 'badge-member' :
+                       r.payment === 'Transfer' ? 'badge-credit' :
+                       r.payment === 'Credit'   ? 'badge-credit' : 'badge-cash';
+    const badgeLabel = r.payment === 'Member'   ? 'เมม' :
+                       r.payment === 'Transfer' ? 'โอน' :
+                       r.payment === 'Credit'   ? 'รูด' : 'สด';
+    const col = SVC_COLORS[r.service] || '#999';
     return `
       <div class="tx-item">
         <div class="tx-dot" style="background:${col}"></div>
@@ -397,12 +306,17 @@ function renderRecord() {
       </div>
       <div class="form-group">
         <label class="form-label">💰 ราคา (บาท)</label>
-        <input class="form-input" id="rec-price" type="number" inputmode="numeric" placeholder="0" min="0" step="1">
+        <input class="form-input" id="rec-price" type="number"
+          inputmode="numeric" placeholder="0" min="0" step="1">
       </div>
       <div class="form-group">
         <label class="form-label">💳 การชำระเงิน</label>
         <div class="pay-chips" id="pay-chips">
-          ${PAYMENT_LIST.map(p => `<button class="pay-chip ${p.id === state.selectedPayment ? 'active' : ''}" onclick="selectPayment('${p.id}')" data-pay="${p.id}">${p.label}</button>`).join('')}
+          ${PAYMENT_LIST.map(p => `
+            <button class="pay-chip ${p.id === state.selectedPayment ? 'active' : ''}"
+              onclick="selectPayment('${p.id}')" data-pay="${p.id}">
+              ${p.label}
+            </button>`).join('')}
         </div>
       </div>
       <div class="form-group">
@@ -415,12 +329,20 @@ function renderRecord() {
           <div id="rec-comm-preview" style="font-size:22px; font-weight:700; font-family:var(--ff-mono); color:var(--rose);">—</div>
         </div>
       </div>
-      <button class="btn-primary" id="rec-submit-btn" onclick="submitRecord()">💾 บันทึกรายการ</button>
+      <button class="btn-primary" id="rec-submit-btn" onclick="submitRecord()">
+        💾 บันทึกรายการ
+      </button>
     </div>
     <div class="card">
       <div class="card-title">⚡ บันทึกด่วน</div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-        ${SERVICE_LIST.map(s => `<button onclick="quickRecord('${s}')" style="padding:12px; border-radius:var(--radius-sm); border:1.5px solid var(--border); background:#fff; font-family:var(--ff); font-size:14px; font-weight:600; color:var(--ink2); cursor:pointer; min-height:48px;">${s}</button>`).join('')}
+        ${SERVICE_LIST.map(s => `
+          <button onclick="quickRecord('${s}')" style="
+            padding:12px; border-radius:var(--radius-sm);
+            border:1.5px solid var(--border); background:#fff;
+            font-family:var(--ff); font-size:14px; font-weight:600;
+            color:var(--ink2); cursor:pointer; min-height:48px;">${s}
+          </button>`).join('')}
       </div>
     </div>
   `;
@@ -460,11 +382,15 @@ async function submitRecord() {
   const price = parseFloat($('rec-price').value) || 0;
   const note  = $('rec-note').value.trim();
   if (!svc)       { showToast('เลือกบริการก่อนนะคะ', 'error'); return; }
-  if (price <= 0) { showToast('กรุณากรอกราคาค่ะ', 'error');    return; }
+  if (price <= 0) { showToast('กรุณากรอกราคาค่ะ',    'error'); return; }
+
   const btn = $('rec-submit-btn');
   btn.disabled = true; btn.textContent = '⏳ กำลังบันทึก...';
   try {
-    const result = await api_saveRecord({ userId: state.userId, staffName: state.staffName, service: svc, price, payment: state.selectedPayment, note });
+    const result = await api_saveRecord({
+      userId: state.userId, staffName: state.staffName,
+      service: svc, price, payment: state.selectedPayment, note,
+    });
     if (result.ok === false) throw new Error(result.error);
     showToast(`✅ บันทึก ${svc} ฿${price.toLocaleString()} แล้วค่ะ`, 'success');
     $('rec-service').value = ''; $('rec-price').value = ''; $('rec-note').value = '';
@@ -489,18 +415,32 @@ function renderMember() {
     <div class="card">
       <div class="card-title">🔍 ค้นหาด้วยรหัส 4 หลัก</div>
       <div style="display:flex; gap:8px;">
-        <input class="form-input" id="mem-code" type="number" inputmode="numeric" placeholder="รหัส 4 หลัก" maxlength="4" style="flex:1; margin-bottom:0;">
+        <input class="form-input" id="mem-code" type="number"
+          inputmode="numeric" placeholder="รหัส 4 หลัก" maxlength="4"
+          style="flex:1; margin-bottom:0;">
         <button class="btn-icon" onclick="searchMember()">🔍</button>
       </div>
     </div>
     <div id="mem-result"></div>
     <div class="card">
       <div class="card-title">🆕 สมัครสมาชิกใหม่</div>
-      <div class="form-group"><label class="form-label">เบอร์โทร</label><input class="form-input" id="reg-phone" type="tel" inputmode="tel" placeholder="0812345678" maxlength="10"></div>
-      <div class="form-group"><label class="form-label">ชื่อสมาชิก</label><input class="form-input" id="reg-name" type="text" placeholder="ชื่อ"></div>
+      <div class="form-group">
+        <label class="form-label">เบอร์โทร</label>
+        <input class="form-input" id="reg-phone" type="tel" inputmode="tel" placeholder="0812345678" maxlength="10">
+      </div>
+      <div class="form-group">
+        <label class="form-label">ชื่อสมาชิก</label>
+        <input class="form-input" id="reg-name" type="text" placeholder="ชื่อ">
+      </div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px;">
-        <div class="form-group" style="margin-bottom:0;"><label class="form-label">รหัส 4 หลัก</label><input class="form-input" id="reg-code" type="number" inputmode="numeric" placeholder="เช่น 1234" maxlength="4"></div>
-        <div class="form-group" style="margin-bottom:0;"><label class="form-label">ยอดเปิด (฿)</label><input class="form-input" id="reg-amount" type="number" inputmode="numeric" placeholder="0"></div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">รหัส 4 หลัก</label>
+          <input class="form-input" id="reg-code" type="number" inputmode="numeric" placeholder="เช่น 1234" maxlength="4">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">ยอดเปิด (฿)</label>
+          <input class="form-input" id="reg-amount" type="number" inputmode="numeric" placeholder="0">
+        </div>
       </div>
       <button class="btn-primary btn-green" onclick="registerMember()">🆕 สมัครสมาชิก</button>
     </div>
@@ -516,7 +456,11 @@ async function searchMember() {
   try {
     const result = await api_getMemberByCode(code);
     if (!result || !result.found) {
-      resultEl.innerHTML = `<div class="card" style="text-align:center; color:var(--ink3);"><span style="font-size:36px;">🔍</span><div style="margin-top:8px;">ไม่พบสมาชิกรหัส ${code} ค่ะ</div></div>`;
+      resultEl.innerHTML = `
+        <div class="card" style="text-align:center; color:var(--ink3);">
+          <span style="font-size:36px;">🔍</span>
+          <div style="margin-top:8px;">ไม่พบสมาชิกรหัส ${code} ค่ะ</div>
+        </div>`;
       return;
     }
     state.member = result;
@@ -526,12 +470,15 @@ async function searchMember() {
         <div class="member-card-name">${m.name}</div>
         <div class="member-card-code">รหัส ${m.memberCode} · ${m.phone}</div>
         <div class="member-card-bal-lbl">ยอดเงินคงเหลือ</div>
-        <div class="member-card-bal" style="color:${lowBal ? '#FF6B9D' : '#fff'}">฿${m.balance.toLocaleString()}</div>
+        <div class="member-card-bal" style="color:${lowBal ? '#FF6B9D' : '#fff'}">
+          ฿${m.balance.toLocaleString()}
+        </div>
         ${m.expiry ? `<div class="member-card-exp">หมดอายุ: ${m.expiry}</div>` : ''}
       </div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px;">
         <button class="btn-primary" onclick="showTopupModal()">💰 เติมเงิน</button>
-        <button class="btn-secondary" style="color:var(--purple); border-color:var(--purple-pale);" onclick="showDeductInfo()">✂️ ข้อมูลตัด</button>
+        <button class="btn-secondary" style="color:var(--purple); border-color:var(--purple-pale);"
+          onclick="showDeductInfo()">✂️ ข้อมูลตัด</button>
       </div>`;
   } catch (err) {
     resultEl.innerHTML = `<div class="card" style="color:#EF4444; text-align:center;">⚠️ ${err.message || 'เชื่อมต่อไม่ได้'}</div>`;
@@ -542,19 +489,27 @@ function showTopupModal() {
   if (!state.member) return;
   const m = state.member;
   document.body.insertAdjacentHTML('beforeend', `
-    <div class="modal-bg show" id="topup-modal" onclick="if(event.target===this)closeModal('topup-modal')">
+    <div class="modal-bg show" id="topup-modal"
+      onclick="if(event.target===this)closeModal('topup-modal')">
       <div class="modal">
         <div class="modal-handle"></div>
         <div class="modal-title">💰 เติมเงิน — ${m.name}</div>
-        <div style="font-size:14px; color:var(--ink3); margin-bottom:16px;">ยอดปัจจุบัน ฿${m.balance.toLocaleString()}</div>
+        <div style="font-size:14px; color:var(--ink3); margin-bottom:16px;">
+          ยอดปัจจุบัน ฿${m.balance.toLocaleString()}
+        </div>
         <div class="form-group">
           <label class="form-label">ยอดเงินที่จ่าย (฿)</label>
-          <input class="form-input" id="topup-amount" type="number" inputmode="numeric" placeholder="0" min="0" step="100">
+          <input class="form-input" id="topup-amount" type="number"
+            inputmode="numeric" placeholder="0" min="0" step="100">
         </div>
         <div class="form-group">
           <label class="form-label">ช่องทาง</label>
           <div class="pay-chips">
-            ${PAYMENT_LIST.map(p => `<button class="pay-chip ${p.id === 'Cash' ? 'active' : ''}" onclick="selectTopupPay('${p.id}')" data-tpay="${p.id}">${p.label}</button>`).join('')}
+            ${PAYMENT_LIST.map(p => `
+              <button class="pay-chip ${p.id === 'Cash' ? 'active' : ''}"
+                onclick="selectTopupPay('${p.id}')" data-tpay="${p.id}">
+                ${p.label}
+              </button>`).join('')}
           </div>
         </div>
         <div id="topup-credit-preview" style="margin-bottom:16px;"></div>
@@ -576,11 +531,20 @@ function selectTopupPay(payId) {
 function updateTopupPreview() {
   const amount = parseFloat($('topup-amount').value) || 0;
   const cfg    = state.config;
-  const tier   = amount >= 20000 ? (cfg.TIER_20K || 27000) : amount >= 10000 ? (cfg.TIER_10K || 13000) : amount >= 5000 ? (cfg.TIER_5K || 6000) : amount;
+  const tier   = amount >= 20000 ? (cfg.TIER_20K || 27000) :
+                 amount >= 10000 ? (cfg.TIER_10K || 13000) :
+                 amount >= 5000  ? (cfg.TIER_5K  || 6000)  : amount;
   const bonus  = tier - amount;
   const el     = $('topup-credit-preview');
   if (amount > 0) {
-    el.innerHTML = `<div class="card" style="background:var(--green-pale); border-color:#A8E6CD; margin-bottom:0;"><div style="font-size:12px; font-weight:700; color:#0A7040; margin-bottom:4px;">จะได้รับเครดิต</div><div style="font-size:24px; font-weight:700; font-family:var(--ff-mono); color:var(--green);">฿${tier.toLocaleString()}</div>${bonus > 0 ? `<div style="font-size:12px; color:#0A7040;">โบนัส +฿${bonus.toLocaleString()}</div>` : ''}</div>`;
+    el.innerHTML = `
+      <div class="card" style="background:var(--green-pale); border-color:#A8E6CD; margin-bottom:0;">
+        <div style="font-size:12px; font-weight:700; color:#0A7040; margin-bottom:4px;">จะได้รับเครดิต</div>
+        <div style="font-size:24px; font-weight:700; font-family:var(--ff-mono); color:var(--green);">
+          ฿${tier.toLocaleString()}
+        </div>
+        ${bonus > 0 ? `<div style="font-size:12px; color:#0A7040;">โบนัส +฿${bonus.toLocaleString()}</div>` : ''}
+      </div>`;
   } else { el.innerHTML = ''; }
 }
 
@@ -589,7 +553,10 @@ async function doTopup() {
   const payment = document.querySelector('[data-tpay].active')?.getAttribute('data-tpay') || 'Cash';
   if (amount <= 0) { showToast('กรอกยอดเงินด้วยค่ะ', 'error'); return; }
   try {
-    const result = await api_topupMember({ userId: state.userId, staffName: state.staffName, memberCode: state.member.memberCode, payAmount: amount, payment });
+    const result = await api_topupMember({
+      userId: state.userId, staffName: state.staffName,
+      memberCode: state.member.memberCode, payAmount: amount, payment,
+    });
     if (result.ok === false) throw new Error(result.error);
     showToast('✅ เติมเงินสำเร็จค่ะ', 'success');
     closeModal('topup-modal');
@@ -604,14 +571,22 @@ function showDeductInfo() {
 }
 
 async function registerMember() {
-  const phone = $('reg-phone').value.trim(), name = $('reg-name').value.trim();
-  const code  = $('reg-code').value.trim(), amount = parseFloat($('reg-amount').value) || 0;
-  if (!phone || !name || !code || amount <= 0) { showToast('กรุณากรอกข้อมูลให้ครบค่ะ', 'error'); return; }
+  const phone  = $('reg-phone').value.trim();
+  const name   = $('reg-name').value.trim();
+  const code   = $('reg-code').value.trim();
+  const amount = parseFloat($('reg-amount').value) || 0;
+  if (!phone || !name || !code || amount <= 0) {
+    showToast('กรุณากรอกข้อมูลให้ครบค่ะ', 'error'); return;
+  }
   try {
-    const result = await api_registerMember({ userId: state.userId, staffName: state.staffName, phone, name, memberCode: code, amount });
+    const result = await api_registerMember({
+      userId: state.userId, staffName: state.staffName,
+      phone, name, memberCode: code, amount,
+    });
     if (result.ok === false) throw new Error(result.error);
     showToast(`✅ สมัครสมาชิก ${name} รหัส ${code} สำเร็จค่ะ`, 'success');
-    $('reg-phone').value = ''; $('reg-name').value = ''; $('reg-code').value = ''; $('reg-amount').value = '';
+    $('reg-phone').value = ''; $('reg-name').value = '';
+    $('reg-code').value  = ''; $('reg-amount').value = '';
   } catch (err) { showToast('❌ ' + (err.message || 'เกิดข้อผิดพลาด'), 'error'); }
 }
 
@@ -650,7 +625,8 @@ async function loadSummaryPeriod(period, btn) {
 }
 
 function fallbackSummary(el) {
-  const recs  = state.todayRecs.filter(r => !['เติมเงินสมาชิก','เปิดเมมเบอร์ใหม่'].includes(r.service));
+  const recs  = state.todayRecs.filter(r =>
+    !['เติมเงินสมาชิก','เปิดเมมเบอร์ใหม่'].includes(r.service));
   const total = recs.reduce((s, r) => s + r.price, 0);
   const comm  = Math.round(recs.reduce((s, r) => s + r.price*(COMMISSION_RATE[r.service]||0.1), 0));
   const byService = {};
@@ -660,16 +636,23 @@ function fallbackSummary(el) {
       <div class="stat-box"><div class="s-val">฿${total.toLocaleString()}</div><div class="s-lbl">รายรับ</div></div>
       <div class="stat-box"><div class="s-val" style="color:var(--green)">฿${comm.toLocaleString()}</div><div class="s-lbl">ค่าคอม</div></div>
     </div>
-    <div class="card"><div class="card-title">💅 แยกตามบริการ</div>
-      ${Object.entries(byService).map(([svc, val]) => `<div style="display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border);"><span style="font-size:14px; color:var(--ink2);">${svc}</span><span style="font-size:14px; font-weight:700;">฿${val.toLocaleString()}</span></div>`).join('')}
+    <div class="card">
+      <div class="card-title">💅 แยกตามบริการ</div>
+      ${Object.entries(byService).map(([svc, val]) => `
+        <div style="display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border);">
+          <span style="font-size:14px; color:var(--ink2);">${svc}</span>
+          <span style="font-size:14px; font-weight:700;">฿${val.toLocaleString()}</span>
+        </div>`).join('')}
     </div>
     <div class="card" style="background:var(--rose-pale); border-color:var(--rose-light);">
       <div style="font-size:13px; color:var(--ink3); margin-bottom:2px;">ค่าคอมรวม</div>
-      <div style="font-size:32px; font-weight:700; font-family:var(--ff-mono); color:var(--rose);">฿${comm.toLocaleString()}</div>
+      <div style="font-size:32px; font-weight:700; font-family:var(--ff-mono); color:var(--rose);">
+        ฿${comm.toLocaleString()}
+      </div>
     </div>`;
 }
 
-function renderSummaryResult(data, period) {
+function renderSummaryResult(data) {
   const el = $('summary-content');
   const total = data.total || 0, comm = data.comm || 0;
   el.innerHTML = `
@@ -679,7 +662,9 @@ function renderSummaryResult(data, period) {
     </div>
     <div class="card" style="background:var(--rose-pale); border-color:var(--rose-light);">
       <div style="font-size:13px; color:var(--ink3); margin-bottom:2px;">ค่าคอมรวม</div>
-      <div style="font-size:32px; font-weight:700; font-family:var(--ff-mono); color:var(--rose);">฿${comm.toLocaleString()}</div>
+      <div style="font-size:32px; font-weight:700; font-family:var(--ff-mono); color:var(--rose);">
+        ฿${comm.toLocaleString()}
+      </div>
     </div>`;
 }
 
@@ -717,20 +702,25 @@ function showToast(msg, type = '') {
 function setupOfflineDetect() {
   const banner = $('offline-banner');
   if (!banner) return;
-  function update() { banner.classList.toggle('show', !navigator.onLine); }
-  window.addEventListener('online', update); window.addEventListener('offline', update); update();
+  const update = () => banner.classList.toggle('show', !navigator.onLine);
+  window.addEventListener('online', update);
+  window.addEventListener('offline', update);
+  update();
 }
 
 function setupInstallPrompt() {
   window.addEventListener('beforeinstallprompt', e => {
-    e.preventDefault(); state.deferredInstallPrompt = e; checkInstallPrompt();
+    e.preventDefault();
+    state.deferredInstallPrompt = e;
+    checkInstallPrompt();
   });
 }
 
 function checkInstallPrompt() {
   const prompt = $('install-prompt'); if (!prompt) return;
-  const dismissed = localStorage.getItem('nk_install_dismissed');
-  if (state.deferredInstallPrompt && !dismissed) prompt.classList.add('show');
+  if (state.deferredInstallPrompt && !localStorage.getItem('nk_install_dismissed')) {
+    prompt.classList.add('show');
+  }
 }
 
 function triggerInstall() {
