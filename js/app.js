@@ -75,21 +75,25 @@ function registerSW() {
 function setupKeyboardDetect() {
   if (!window.visualViewport) return;
   const THRESHOLD = 150;
-  const fullH = window.innerHeight;
 
-  window.visualViewport.addEventListener('resize', () => {
-    const diff = fullH - window.visualViewport.height;
+  function onViewportResize() {
+    const vvh = window.visualViewport.height;
+    const fullH = window.screen.height;
+    const diff = window.innerHeight - vvh;
+
+    // อัปเดต CSS variable ให้ตรงกับ viewport จริง
+    document.documentElement.style.setProperty('--vvh', vvh + 'px');
+
     if (diff > THRESHOLD) {
       document.body.classList.add('keyboard-open');
-      // ขยับ page ขึ้นตาม viewport จริง
-      const app = document.getElementById('app');
-      if (app) app.style.bottom = (fullH - window.visualViewport.height) + 'px';
     } else {
       document.body.classList.remove('keyboard-open');
-      const app = document.getElementById('app');
-      if (app) app.style.bottom = '0';
+      document.documentElement.style.setProperty('--vvh', '100vh');
     }
-  });
+  }
+
+  window.visualViewport.addEventListener('resize', onViewportResize);
+  window.visualViewport.addEventListener('scroll', onViewportResize);
 }
 
 /* ══════════════════════════════════════════════
