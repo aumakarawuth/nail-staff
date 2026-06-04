@@ -82,8 +82,8 @@ body.keyboard-open #app {
   border-top: 1.5px solid var(--border);
   display: flex;
   z-index: 100;
-  /* safe area สำหรับ iPhone notch/home indicator */
-  padding-bottom: env(safe-area-inset-bottom, 16px);
+  /* ลบ padding-bottom ทิ้งหมด ไม่ต้องการ safe area */
+  padding-bottom: 0;
 }
 
 .nav-item {
@@ -106,7 +106,7 @@ body.keyboard-open #app {
 
 /* เพิ่ม padding ด้านล่างของ page ให้เนื้อหาไม่ถูก nav บัง */
 .page {
-  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
+  padding-bottom: calc(54px + env(safe-area-inset-bottom, 0px)) !important;
 }
 
 /* ── Loading ── */
