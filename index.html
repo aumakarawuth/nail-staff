@@ -2,38 +2,32 @@
 <html lang="th">
 <head>
 <meta charset="UTF-8">
+<!-- ✅ FIX: viewport-fit=cover จำเป็นมากสำหรับ env(safe-area-inset-bottom) ให้ทำงาน -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#FF2D6F">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<!-- ✅ FIX: black-translucent = Safari ใช้ safe area จริง ไม่ใช้ default -->
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="NailStaff">
 <meta name="description" content="บันทึกงานพนักงาน Nail Kloset">
 
-<!-- PWA Manifest -->
 <link rel="manifest" href="manifest.json">
-
-<!-- Apple Touch Icons -->
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" sizes="512x512" href="icons/icon-512.png">
-
-<!-- Favicon -->
 <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-192.png">
 
 <title>Nail Kloset — Staff</title>
 
-<!-- Fonts -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-<!-- App CSS -->
 <link rel="stylesheet" href="css/app.css">
 <script src="https://static.line-scdn.net/liff/edge/versions/2.22.3/sdk.js"></script>
 </head>
 <body>
 
-<!-- Loading Screen -->
 <div id="loading-screen">
   <div class="load-logo">💅 Nail Kloset</div>
   <div class="load-sub">Staff Portal</div>
@@ -42,16 +36,10 @@
   </div>
 </div>
 
-<!-- Login Screen (injected by JS) -->
 <div id="login-screen"></div>
-
-<!-- App Shell (injected by JS after login) -->
 <div id="app"></div>
-
-<!-- Toast -->
 <div class="toast" id="toast"></div>
 
-<!-- Scripts -->
 <script src="js/api.js"></script>
 <script src="js/app.js"></script>
 </body>
