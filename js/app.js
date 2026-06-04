@@ -1,20 +1,19 @@
 /* ═══════════════════════════════════════════════
-   app.js — Nail Kloset Staff PWA  (UI v4 — fixed)
+   app.js — Nail Kloset Staff PWA
    แก้ไข:
-   1. Bottom nav นิ่ง ไม่เลื่อนตาม keyboard
-   2. บันทึกงาน → ยอดรายรับ/ค่าคอมเด้งทันที (optimistic update)
-   3. ตัดยอดสมาชิกเมื่อชำระแบบ Member
-   4. ค้นหาสมาชิก / สรุปยอด ทำงานถูกต้อง
-   5. ไม่มีปุ่มออกจากระบบ
+   1. ค้นหาสมาชิกบันทึกงาน: timeout สั้นลง + skeleton ชัดขึ้น
+   2. สมัครสมาชิก: แก้ field validation + error message ชัดขึ้น
+   3. หน้าสมาชิก: ยอดเงินเห็นชัด + รีเฟรชยอดล่าสุดหลังเติมเงิน
+   4. บันทึกงานตัดเมมเบอร์: บันทึก memberCode + memberName เหมือนตอนเติมเงิน
 ═══════════════════════════════════════════════ */
 
 const SVC_COLORS = {
-  'ทำเล็บ':        '#FF2D6F',
-  'ต่อขนตา':       '#7B52AB',
-  'สปามือ/เท้า':   '#0FBA75',
-  'แว็กขน':        '#F5A623',
-  'เติมเงินสมาชิก': '#2B7FFF',
-  'เปิดเมมเบอร์ใหม่':'#2B7FFF',
+  'ทำเล็บ':        '#FF2D78',
+  'ต่อขนตา':       '#7C3AED',
+  'สปามือ/เท้า':   '#0EA5AA',
+  'แว็กขน':        '#F59E0B',
+  'เติมเงินสมาชิก': '#3B82F6',
+  'เปิดเมมเบอร์ใหม่':'#3B82F6',
 };
 
 const COMMISSION_RATE = {
@@ -25,10 +24,10 @@ const COMMISSION_RATE = {
 };
 
 const SERVICE_LIST = [
-  { id: 'ทำเล็บ',       icon: '💅', color: '#FF2D6F', bg: '#FFF0F4' },
-  { id: 'ต่อขนตา',      icon: '👁',  color: '#7B52AB', bg: '#EDE8F7' },
-  { id: 'สปามือ/เท้า',  icon: '🧴', color: '#0FBA75', bg: '#D7F7EC' },
-  { id: 'แว็กขน',       icon: '✨', color: '#F5A623', bg: '#FEF3DC' },
+  { id: 'ทำเล็บ',       icon: '💅', color: '#FF2D78', bg: '#FFF0F4' },
+  { id: 'ต่อขนตา',      icon: '👁',  color: '#7C3AED', bg: '#EDE8F7' },
+  { id: 'สปามือ/เท้า',  icon: '🧴', color: '#0EA5AA', bg: '#D7F7EC' },
+  { id: 'แว็กขน',       icon: '✨', color: '#F59E0B', bg: '#FEF3DC' },
 ];
 
 const PAYMENT_LIST = [
@@ -57,7 +56,7 @@ window.addEventListener('DOMContentLoaded', () => {
   registerSW();
   setupOfflineDetect();
   setupInstallPrompt();
-  setupKeyboardDetect(); // FIX 3: keyboard detection
+  setupKeyboardDetect();
   checkLogin();
 });
 
@@ -66,28 +65,13 @@ function registerSW() {
     navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
-/* ══════════════════════════════════════════════
-   FIX 3: Keyboard detection — ป้องกัน nav ขึ้น
-   วิธีที่ทำงานได้ทุก browser/OS:
-   - ตรวจ visualViewport resize
-   - ถ้า viewport หดมากกว่า 150px = keyboard เปิด
-══════════════════════════════════════════════ */
 function setupKeyboardDetect() {
   if (!window.visualViewport) return;
   const THRESHOLD = 150;
-
   function onViewportChange() {
-    const vvh    = window.visualViewport.height;
-    const fullH  = window.innerHeight;
-    const diff   = fullH - vvh;
-
-    if (diff > THRESHOLD) {
-      document.body.classList.add('keyboard-open');
-    } else {
-      document.body.classList.remove('keyboard-open');
-    }
+    const diff = window.innerHeight - window.visualViewport.height;
+    document.body.classList.toggle('keyboard-open', diff > THRESHOLD);
   }
-
   window.visualViewport.addEventListener('resize', onViewportChange);
 }
 
@@ -231,9 +215,9 @@ function goPage(page) {
   if (page === 'home')    renderHome();
   if (page === 'record')  renderRecord();
   if (page === 'member') {
-  renderMember();
-  switchMemberTab(_memTab || 'search');
-}
+    renderMember();
+    switchMemberTab(_memTab || 'search');
+  }
   if (page === 'summary') renderSummary();
 }
 
@@ -272,17 +256,12 @@ function renderHome() {
   `;
 }
 
-/* ══════════════════════════════════════════════
-   FIX 2: อัปเดต home stats ทันที (optimistic)
-   เรียกหลังบันทึกสำเร็จ โดยไม่ต้อง re-render ทั้งหน้า
-══════════════════════════════════════════════ */
 function refreshHomeStats() {
   const recs  = state.todayRecs.filter(r =>
     !['เติมเงินสมาชิก','เปิดเมมเบอร์ใหม่'].includes(r.service));
   const comm  = Math.round(recs.reduce((s,r) => s + r.price*(COMMISSION_RATE[r.service]||0.1), 0));
   const count = recs.length;
 
-  // ถ้าอยู่หน้า home อยู่แล้ว → update ตัวเลขตรงๆ
   const commEl  = $('home-comm-val');
   const countEl = $('home-comm-count');
   const listEl  = $('home-tx-list');
@@ -294,6 +273,9 @@ function refreshHomeStats() {
     : renderTxItems(state.todayRecs);
 }
 
+/* ══════════════════════════════════════════════
+   FIX 4: renderTxItems — แสดงชื่อสมาชิกที่ถูกตัดยอด
+══════════════════════════════════════════════ */
 function renderTxItems(recs) {
   return recs.map(r => {
     const isMemSvc   = ['เติมเงินสมาชิก','เปิดเมมเบอร์ใหม่'].includes(r.service);
@@ -305,12 +287,18 @@ function renderTxItems(recs) {
                        r.payment==='Transfer' ? 'โอน' :
                        r.payment==='Credit'   ? 'รูด' : 'สด';
     const col = SVC_COLORS[r.service] || '#999';
+
+    // FIX 4: แสดงชื่อ/รหัสสมาชิกที่ถูกตัดยอด
+    const memberInfo = (r.payment === 'Member' && (r.memberName || r.memberCode))
+      ? ` · ${r.memberName || ''}${r.memberCode ? ` (${r.memberCode})` : ''}`
+      : '';
+
     return `
       <div class="tx-item">
         <div class="tx-dot" style="background:${col}"></div>
         <div class="tx-info">
           <div class="tx-svc">${r.service}</div>
-          <div class="tx-meta">${r.time||''}${commStr ? ' · '+commStr : ''}</div>
+          <div class="tx-meta">${r.time||''}${commStr ? ' · '+commStr : ''}${memberInfo}</div>
         </div>
         <div class="tx-right">
           <span class="tx-badge ${badgeClass}">${badgeLabel}</span>
@@ -321,7 +309,7 @@ function renderTxItems(recs) {
 }
 
 /* ══════════════════════════════════════════════
-   RECORD PAGE — บันทึกงาน + ตัดยอดสมาชิก
+   RECORD PAGE
 ══════════════════════════════════════════════ */
 function renderRecord() {
   const el = $('page-record');
@@ -368,7 +356,7 @@ function renderRecord() {
           <div class="search-row">
             <input class="form-input" id="rec-mem-code" type="number"
               inputmode="numeric" placeholder="0000" maxlength="4">
-            <button class="btn-search" onclick="lookupRecordMember()">ค้นหา</button>
+            <button class="btn-search" id="rec-mem-search-btn" onclick="lookupRecordMember()">ค้นหา</button>
           </div>
           <div id="rec-mem-result"></div>
         </div>
@@ -418,12 +406,29 @@ function selectPayment(payId) {
   updateCommPreview();
 }
 
+/* ══════════════════════════════════════════════
+   FIX 1: ค้นหาสมาชิกหน้าบันทึกงาน — loading ชัดขึ้น + timeout สั้น
+══════════════════════════════════════════════ */
 async function lookupRecordMember() {
   const code = $('rec-mem-code')?.value.trim();
   if (!code || code.length !== 4) { showToast('กรอกรหัส 4 หลักด้วยค่ะ','error'); return; }
-  const el = $('rec-mem-result');
+
+  const el    = $('rec-mem-result');
+  const btn   = $('rec-mem-search-btn');
   if (!el) return;
-  el.innerHTML = `<div class="shimmer" style="height:60px;margin-top:10px;"></div>`;
+
+  // แสดง loading ชัดเจน
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-top:12px;padding:12px;
+      background:var(--surface2);border-radius:var(--radius-xs);">
+      <div class="shimmer" style="width:36px;height:36px;border-radius:50%;flex-shrink:0;"></div>
+      <div style="flex:1;">
+        <div class="shimmer" style="height:14px;border-radius:6px;margin-bottom:6px;width:60%;"></div>
+        <div class="shimmer" style="height:12px;border-radius:6px;width:40%;"></div>
+      </div>
+    </div>`;
+
   try {
     const result = await api_getMemberByCode(code);
     if (!result?.found) {
@@ -436,13 +441,15 @@ async function lookupRecordMember() {
     el.innerHTML = `
       <div class="rec-member-info ${low?'low-balance':''}">
         <div class="rec-member-name">✅ ${result.name}</div>
-        <div class="rec-member-bal">ยอดคงเหลือ: <strong style="color:${low?'#EF4444':'#0FBA75'}">฿${Number(result.balance).toLocaleString()}</strong></div>
+        <div class="rec-member-bal">ยอดคงเหลือ: <strong style="color:${low?'#EF4444':'#10B981'}">฿${Number(result.balance).toLocaleString()}</strong></div>
         ${low ? `<div class="rec-member-warn">⚠️ ยอดใกล้หมดค่ะ</div>` : ''}
       </div>`;
     updateCommPreview();
   } catch(err) {
     el.innerHTML = `<div class="mem-not-found">⚠️ ${err.message||'เชื่อมต่อไม่ได้'}</div>`;
     state.recordMember = null;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'ค้นหา'; }
   }
 }
 
@@ -456,7 +463,7 @@ function updateCommPreview() {
 
   let memberWarn = '';
   if (state.selectedPayment === 'Member' && state.recordMember && price > 0) {
-    const after    = state.recordMember.balance - price;
+    const after     = state.recordMember.balance - price;
     const overdrawn = after < 0;
     memberWarn = `
       <div class="member-deduct-preview ${overdrawn?'overdrawn':''}">
@@ -478,6 +485,9 @@ function updateCommPreview() {
   }
 }
 
+/* ══════════════════════════════════════════════
+   FIX 4: submitRecord — บันทึก memberCode + memberName
+══════════════════════════════════════════════ */
 async function submitRecord() {
   const svc   = state.selectedService;
   const price = parseFloat($('rec-price')?.value) || 0;
@@ -497,46 +507,54 @@ async function submitRecord() {
   const btn = $('rec-submit-btn');
   btn.disabled = true; btn.textContent = '⏳ กำลังบันทึก...';
 
-  /* ══ FIX 2: Optimistic update — เพิ่มรายการใน local state ทันที ══ */
+  /* Optimistic update */
   const now     = new Date();
   const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
   const newRec  = {
-    service: svc,
+    service:    svc,
     price,
-    payment: state.selectedPayment,
+    payment:    state.selectedPayment,
     note,
-    time: timeStr,
+    time:       timeStr,
+    // FIX 4: เก็บ memberCode + memberName ใน local record ด้วย
     memberCode: state.recordMember?.memberCode || '',
-    _optimistic: true, // flag = ยังรอ server confirm
+    memberName: state.recordMember?.name       || '',
+    _optimistic: true,
   };
-  state.todayRecs.unshift(newRec); // เพิ่มหัวสุด
-
-  // อัปเดต home ทันทีถ้าอยู่หน้า home อยู่แล้ว
-  if (state.page === 'home') {
-    refreshHomeStats();
-  }
+  state.todayRecs.unshift(newRec);
+  if (state.page === 'home') refreshHomeStats();
 
   try {
     const payload = {
-      userId: state.userId, staffName: state.staffName,
-      service: svc, price, payment: state.selectedPayment, note,
+      userId:    state.userId,
+      staffName: state.staffName,
+      service:   svc,
+      price,
+      payment:   state.selectedPayment,
+      note,
     };
+
+    // FIX 4: ส่ง memberCode + memberName ไปพร้อม record เสมอเมื่อชำระแบบ Member
     if (state.selectedPayment === 'Member' && state.recordMember) {
-      payload.memberCode    = state.recordMember.memberCode;
-      payload.deductMember  = true;
+      payload.memberCode   = state.recordMember.memberCode;
+      payload.memberName   = state.recordMember.name;
+      payload.deductMember = true;
     }
 
     const result = await api_saveRecord(payload);
     if (result.ok === false) throw new Error(result.error || 'บันทึกไม่สำเร็จ');
 
-    // ลบ optimistic flag และ sync id จาก server ถ้ามี
+    // อัปเดต optimistic record
     const idx = state.todayRecs.findIndex(r => r._optimistic);
     if (idx !== -1) {
       state.todayRecs[idx]._optimistic = false;
       if (result.rowId) state.todayRecs[idx].rowId = result.rowId;
     }
 
-    showToast(`✅ บันทึก ${svc} ฿${price.toLocaleString()} แล้วค่ะ`, 'success');
+    const memberMsg = state.selectedPayment === 'Member' && state.recordMember
+      ? ` (ตัด ${state.recordMember.name})`
+      : '';
+    showToast(`✅ บันทึก ${svc} ฿${price.toLocaleString()}${memberMsg} แล้วค่ะ`, 'success');
 
     // อัปเดต local member balance
     if (state.selectedPayment === 'Member' && state.recordMember) {
@@ -547,12 +565,11 @@ async function submitRecord() {
     state.selectedService = '';
     state.recordMember    = null;
 
-    // navigate ไป home แล้ว refresh จาก server ใน background
     goPage('home');
     loadTodayRecords().then(() => refreshHomeStats());
 
   } catch(err) {
-    // Rollback optimistic update ถ้า error
+    // Rollback
     state.todayRecs = state.todayRecs.filter(r => !r._optimistic);
     if (state.page === 'home') refreshHomeStats();
     showToast('❌ '+(err.message||'เกิดข้อผิดพลาด'), 'error');
@@ -572,15 +589,15 @@ function renderMember() {
     <div class="page-title">💳 <span>สมาชิก</span></div>
     <div class="page-sub">ค้นหา · เติมเงิน · สมัครใหม่</div>
 
-    <div style="display:flex;gap:0;background:var(--surface-2);border-radius:14px;padding:4px;margin-bottom:16px;">
+    <div style="display:flex;gap:0;background:var(--surface2);border-radius:14px;padding:4px;margin-bottom:16px;">
       <button id="mem-tab-btn-search"
-        style="flex:1;padding:11px 6px;border:none;background:linear-gradient(135deg,var(--rose),var(--rose-deep));color:#fff;border-radius:12px;font-family:'IBM Plex Sans Thai',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;"
+        style="flex:1;padding:11px 6px;border:none;background:linear-gradient(135deg,var(--pink),var(--pink2));color:#fff;border-radius:12px;font-family:var(--ff);font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;"
         onclick="switchMemberTab('search')">🔍 ค้นหา</button>
       <button id="mem-tab-btn-topup"
-        style="flex:1;padding:11px 6px;border:none;background:transparent;color:var(--ink3);border-radius:12px;font-family:'IBM Plex Sans Thai',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;"
+        style="flex:1;padding:11px 6px;border:none;background:transparent;color:var(--text3);border-radius:12px;font-family:var(--ff);font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;"
         onclick="switchMemberTab('topup')">💰 เติมเงิน</button>
       <button id="mem-tab-btn-register"
-        style="flex:1;padding:11px 6px;border:none;background:transparent;color:var(--ink3);border-radius:12px;font-family:'IBM Plex Sans Thai',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;"
+        style="flex:1;padding:11px 6px;border:none;background:transparent;color:var(--text3);border-radius:12px;font-family:var(--ff);font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;"
         onclick="switchMemberTab('register')">🆕 สมัคร</button>
     </div>
 
@@ -591,7 +608,7 @@ function renderMember() {
         <div class="search-row">
           <input class="form-input" id="mem-code" type="number"
             inputmode="numeric" placeholder="0000" maxlength="4">
-          <button class="btn-search" onclick="searchMember()">ค้นหา</button>
+          <button class="btn-search" id="mem-search-btn" onclick="searchMember()">ค้นหา</button>
         </div>
       </div>
       <div id="mem-result"></div>
@@ -606,7 +623,7 @@ function renderMember() {
           <div class="search-row">
             <input class="form-input" id="topup-code-tab" type="number"
               inputmode="numeric" placeholder="0000" maxlength="4">
-            <button class="btn-search" onclick="lookupTopupTab()">ค้นหา</button>
+            <button class="btn-search" id="topup-lookup-btn" onclick="lookupTopupTab()">ค้นหา</button>
           </div>
         </div>
         <div id="topup-tab-member-info"></div>
@@ -636,14 +653,18 @@ function renderMember() {
     <div id="mem-pane-register" style="display:none;">
       <div class="card">
         <div class="card-title">🆕 สมัครสมาชิกใหม่</div>
-        <div class="form-group">
-          <label class="form-label">เบอร์โทร</label>
-          <input class="form-input" id="reg-phone-tab" type="tel" inputmode="tel"
-            placeholder="0812345678" maxlength="10">
+        <div class="register-hint">
+          💡 กรอกข้อมูลให้ครบทุกช่อง · รหัส 4 หลักต้องไม่ซ้ำกับสมาชิกอื่น
         </div>
         <div class="form-group">
           <label class="form-label">ชื่อสมาชิก</label>
-          <input class="form-input" id="reg-name-tab" type="text" placeholder="ชื่อ-นามสกุล">
+          <input class="form-input" id="reg-name-tab" type="text"
+            placeholder="ชื่อ-นามสกุล" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label class="form-label">เบอร์โทร</label>
+          <input class="form-input" id="reg-phone-tab" type="tel"
+            inputmode="tel" placeholder="0812345678" maxlength="10">
         </div>
         <div class="form-row-2">
           <div class="form-group">
@@ -658,7 +679,7 @@ function renderMember() {
           </div>
         </div>
         <div id="reg-tab-preview"></div>
-        <button class="btn-primary" onclick="registerMemberTab()">🆕 สมัครสมาชิก</button>
+        <button class="btn-primary btn-violet" id="reg-submit-btn" onclick="registerMemberTab()">🆕 สมัครสมาชิก</button>
       </div>
     </div>
   `;
@@ -667,29 +688,118 @@ function renderMember() {
   $('topup-code-tab')?.addEventListener('keydown', e => { if (e.key === 'Enter') lookupTopupTab(); });
 }
 
-
-
-
-
 // ── Member Tabs ───────────────────────────────────────────────
 let _memTab = 'search';
 
 function switchMemberTab(tab) {
   _memTab = tab;
+  const tabColors = {
+    search:   'linear-gradient(135deg,var(--pink),var(--pink2))',
+    topup:    'linear-gradient(135deg,#059669,#10B981)',
+    register: 'linear-gradient(135deg,#6D28D9,#7C3AED)',
+  };
   ['search','topup','register'].forEach(t => {
     const pane = $('mem-pane-' + t);
     const btn  = $('mem-tab-btn-' + t);
     if (!pane || !btn) return;
     if (t === tab) {
       pane.style.display = '';
-      btn.style.background = 'linear-gradient(135deg,var(--rose),var(--rose-deep))';
+      btn.style.background = tabColors[t];
       btn.style.color = '#fff';
     } else {
       pane.style.display = 'none';
       btn.style.background = 'transparent';
-      btn.style.color = 'var(--ink3)';
+      btn.style.color = 'var(--text3)';
     }
   });
+}
+
+// ── ค้นหาสมาชิก Tab ──────────────────────────────────────────
+
+/* ══════════════════════════════════════════════
+   FIX 3: searchMember — ยอดเงินเห็นชัด + รีเฟรชล่าสุด
+══════════════════════════════════════════════ */
+async function searchMember() {
+  const code = $('mem-code')?.value.trim();
+  if (!code || code.length !== 4) { showToast('กรุณากรอกรหัส 4 หลักค่ะ','error'); return; }
+
+  const el  = $('mem-result');
+  const btn = $('mem-search-btn');
+  if (!el) return;
+
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  el.innerHTML = `
+    <div class="card">
+      <div class="shimmer" style="height:20px;border-radius:6px;margin-bottom:10px;width:50%;"></div>
+      <div class="shimmer" style="height:14px;border-radius:6px;margin-bottom:20px;width:70%;"></div>
+      <div class="shimmer" style="height:80px;border-radius:12px;"></div>
+    </div>`;
+
+  try {
+    // FIX 3: ดึงข้อมูลสดจาก server ทุกครั้ง (ไม่ใช้ cache)
+    const result = await api_getMemberByCode(code);
+    if (!result?.found) {
+      el.innerHTML = `
+        <div class="card" style="text-align:center;padding:32px 20px;">
+          <div style="font-size:40px;margin-bottom:8px;">🔍</div>
+          <div style="color:var(--text3);font-size:14px;">ไม่พบสมาชิกรหัส <strong>${code}</strong></div>
+        </div>`;
+      state.member = null;
+      return;
+    }
+    state.member = result;
+    renderMemberCard(result, el);
+  } catch(err) {
+    el.innerHTML = `
+      <div class="card" style="text-align:center;padding:24px;">
+        <div style="color:var(--red);font-size:14px;margin-bottom:6px;">⚠️ ${err.message||'เชื่อมต่อไม่ได้'}</div>
+        <div style="font-size:12px;color:var(--text3);">ตรวจสอบ GAS URL และการเชื่อมต่อค่ะ</div>
+      </div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'ค้นหา'; }
+  }
+}
+
+/* ══════════════════════════════════════════════
+   FIX 3: renderMemberCard — ยอดเงินสีเข้ม มองเห็นชัด
+══════════════════════════════════════════════ */
+function renderMemberCard(m, el) {
+  const low = m.balance < 500;
+  // FIX 3: ใช้สีที่อ่านง่าย ไม่ใช้ขาวบนขาว
+  const balColor = low ? '#EF4444' : '#1A0F2E';
+
+  el.innerHTML = `
+    <div class="member-card">
+      <div class="member-card-top">
+        <div>
+          <div class="member-card-name">${m.name}</div>
+          <div class="member-card-code">รหัส ${m.memberCode}${m.phone ? ' · ' + m.phone : ''}</div>
+        </div>
+        ${m.expiry ? `<div class="member-card-exp">หมดอายุ<br>${m.expiry}</div>` : ''}
+      </div>
+      <div class="member-card-bal-section">
+        <div class="member-card-bal-label">ยอดเงินคงเหลือ</div>
+        <div class="member-card-bal" style="color:${balColor}">
+          ฿${Number(m.balance).toLocaleString()}
+        </div>
+        ${low ? `<div class="member-card-warn">⚠️ ยอดใกล้หมดแล้วค่ะ</div>` : ''}
+      </div>
+    </div>
+    <div class="action-row">
+      <button class="btn-primary" onclick="switchMemberTab('topup');autoFillTopupCode('${m.memberCode}')">
+        💰 เติมเงิน
+      </button>
+    </div>`;
+}
+
+/* เมื่อกด "เติมเงิน" จากหน้าค้นหา — เปลี่ยนไปหน้าเติมเงิน + กรอกรหัสให้อัตโนมัติ */
+function autoFillTopupCode(code) {
+  const inp = $('topup-code-tab');
+  if (inp) {
+    inp.value = code;
+    // lookup ทันที
+    lookupTopupTab();
+  }
 }
 
 // ── เติมเงิน Tab ──────────────────────────────────────────────
@@ -700,9 +810,12 @@ async function lookupTopupTab() {
   if (!code || code.length !== 4) { showToast('กรอกรหัส 4 หลักด้วยค่ะ', 'error'); return; }
   const infoEl = $('topup-tab-member-info');
   const formEl = $('topup-tab-form');
+  const btn    = $('topup-lookup-btn');
   if (!infoEl || !formEl) return;
 
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
   infoEl.innerHTML = `<div class="shimmer" style="height:64px;margin-bottom:12px;border-radius:12px;"></div>`;
+
   try {
     const result = await api_getMemberByCode(code);
     if (!result?.found) {
@@ -717,19 +830,23 @@ async function lookupTopupTab() {
       <div class="rec-member-info ${low ? 'low-balance' : ''}" style="margin-bottom:12px;">
         <div class="rec-member-name">✅ ${result.name}</div>
         <div class="rec-member-bal">
-          ยอดคงเหลือ: <strong style="color:${low ? '#EF4444' : 'var(--green)'}">
+          ยอดคงเหลือ: <strong style="color:${low ? '#EF4444' : '#10B981'}">
             ฿${Number(result.balance).toLocaleString()}
           </strong>
         </div>
         ${low ? `<div class="rec-member-warn">⚠️ ยอดใกล้หมดค่ะ</div>` : ''}
       </div>`;
     formEl.style.display = '';
-    $('topup-tab-amount').value = '';
-    $('topup-tab-preview').innerHTML = '';
+    const amtEl = $('topup-tab-amount');
+    if (amtEl) amtEl.value = '';
+    const preEl = $('topup-tab-preview');
+    if (preEl) preEl.innerHTML = '';
   } catch(err) {
     infoEl.innerHTML = `<div class="mem-not-found">⚠️ ${err.message || 'เชื่อมต่อไม่ได้'}</div>`;
     formEl.style.display = 'none';
     _topupTabMember = null;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'ค้นหา'; }
   }
 }
 
@@ -742,10 +859,7 @@ function selectTopupTabPay(btn) {
 function updateTopupTabPreview() {
   const amount = parseFloat($('topup-tab-amount')?.value) || 0;
   const cfg    = state.config || {};
-  const t20    = cfg.TIER_20K || 27000;
-  const t10    = cfg.TIER_10K || 13000;
-  const t5     = cfg.TIER_5K  || 6000;
-  const credit = amount >= 20000 ? t20 : amount >= 10000 ? t10 : amount >= 5000 ? t5 : amount;
+  const credit = calcCredit(amount, cfg);
   const bonus  = credit - amount;
   const el     = $('topup-tab-preview');
   if (!el) return;
@@ -768,42 +882,45 @@ async function doTopupTab() {
                     ?.getAttribute('data-pay') || 'Cash';
   if (amount <= 0) { showToast('กรุณาระบุยอดเงินค่ะ', 'error'); return; }
 
+  const btn = document.querySelector('#mem-pane-topup .btn-green');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ กำลังเติมเงิน...'; }
+
   try {
     const result = await api_topupMember({
       userId:     state.userId,
       staffName:  state.staffName,
       memberCode: _topupTabMember.memberCode,
+      memberName: _topupTabMember.name,
       payAmount:  amount,
       payment,
     });
     if (result.ok === false) throw new Error(result.error);
-    showToast('✅ เติมเงินสำเร็จค่ะ', 'success');
+    showToast(`✅ เติมเงิน ${_topupTabMember.name} สำเร็จค่ะ`, 'success');
     resetTopupTab();
     await loadTodayRecords();
   } catch(err) {
     showToast('❌ ' + (err.message || 'เกิดข้อผิดพลาด'), 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '✅ ยืนยันเติมเงิน'; }
   }
 }
 
 function resetTopupTab() {
   _topupTabMember = null;
-  if ($('topup-code-tab'))       $('topup-code-tab').value = '';
-  if ($('topup-tab-amount'))     $('topup-tab-amount').value = '';
+  if ($('topup-code-tab'))        $('topup-code-tab').value = '';
+  if ($('topup-tab-amount'))      $('topup-tab-amount').value = '';
   if ($('topup-tab-member-info')) $('topup-tab-member-info').innerHTML = '';
-  if ($('topup-tab-form'))       $('topup-tab-form').style.display = 'none';
-  if ($('topup-tab-preview'))    $('topup-tab-preview').innerHTML = '';
+  if ($('topup-tab-form'))        $('topup-tab-form').style.display = 'none';
+  if ($('topup-tab-preview'))     $('topup-tab-preview').innerHTML = '';
   document.querySelectorAll('#topup-tab-pay-chips .pay-chip')
     .forEach((b,i) => b.classList.toggle('active', i === 0));
 }
 
 // ── สมัครสมาชิก Tab ───────────────────────────────────────────
+
 function updateRegTabPreview() {
   const amount = parseFloat($('reg-amount-tab')?.value) || 0;
-  const cfg    = state.config || {};
-  const t20    = cfg.TIER_20K || 27000;
-  const t10    = cfg.TIER_10K || 13000;
-  const t5     = cfg.TIER_5K  || 6000;
-  const credit = amount >= 20000 ? t20 : amount >= 10000 ? t10 : amount >= 5000 ? t5 : amount;
+  const credit = calcCredit(amount, state.config || {});
   const bonus  = credit - amount;
   const el     = $('reg-tab-preview');
   if (!el) return;
@@ -819,117 +936,67 @@ function updateRegTabPreview() {
   }
 }
 
+/* ══════════════════════════════════════════════
+   FIX 2: registerMemberTab — validation ชัดขึ้น + error handling
+══════════════════════════════════════════════ */
 async function registerMemberTab() {
-  const phone  = $('reg-phone-tab')?.value.trim();
   const name   = $('reg-name-tab')?.value.trim();
+  const phone  = $('reg-phone-tab')?.value.trim();
   const code   = $('reg-code-tab')?.value.trim();
   const amount = parseFloat($('reg-amount-tab')?.value) || 0;
 
-  if (!phone || !name || !code || amount <= 0) {
-    showToast('กรุณากรอกข้อมูลให้ครบค่ะ', 'error'); return;
-  }
-  if (phone.length < 9) { showToast('เบอร์โทรไม่ถูกต้องค่ะ', 'error'); return; }
-  if (code.length !== 4) { showToast('รหัสต้อง 4 หลักค่ะ', 'error'); return; }
+  // Validation ละเอียดขึ้น
+  if (!name)          { showToast('กรุณากรอกชื่อสมาชิกค่ะ', 'error');     $('reg-name-tab')?.focus();   return; }
+  if (!phone)         { showToast('กรุณากรอกเบอร์โทรค่ะ', 'error');        $('reg-phone-tab')?.focus();  return; }
+  if (phone.length < 9) { showToast('เบอร์โทรต้องอย่างน้อย 9 หลักค่ะ', 'error'); $('reg-phone-tab')?.focus(); return; }
+  if (!code)          { showToast('กรุณากรอกรหัส 4 หลักค่ะ', 'error');     $('reg-code-tab')?.focus();   return; }
+  if (code.length !== 4) { showToast('รหัสต้องเป็น 4 หลักพอดีค่ะ', 'error'); $('reg-code-tab')?.focus(); return; }
+  if (amount <= 0)    { showToast('กรุณากรอกยอดเปิดบัญชีค่ะ', 'error');    $('reg-amount-tab')?.focus(); return; }
+
+  const btn = $('reg-submit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ กำลังสมัคร...'; }
 
   try {
     const result = await api_registerMember({
       userId:     state.userId,
       staffName:  state.staffName,
-      phone, name, memberCode: code, amount,
+      name,
+      phone,
+      memberCode: code,
+      amount,
     });
-    if (result.ok === false) throw new Error(result.error);
+
+    // FIX 2: ตรวจสอบ response ให้ครอบคลุม
+    if (result.ok === false) throw new Error(result.error || result.message || 'สมัครไม่สำเร็จ');
+
     showToast(`✅ สมัครสมาชิก ${name} รหัส ${code} สำเร็จค่ะ`, 'success');
-    ['reg-phone-tab','reg-name-tab','reg-code-tab','reg-amount-tab'].forEach(id => {
+
+    // reset form
+    ['reg-name-tab','reg-phone-tab','reg-code-tab','reg-amount-tab'].forEach(id => {
       const el = $(id); if (el) el.value = '';
     });
     if ($('reg-tab-preview')) $('reg-tab-preview').innerHTML = '';
+
+    // reload records เพื่ออัปเดตหน้าหลัก
+    await loadTodayRecords();
+
   } catch(err) {
-    showToast('❌ ' + (err.message || 'เกิดข้อผิดพลาด'), 'error');
+    // FIX 2: แสดง error message จาก server ให้ชัดเจน
+    const msg = err.message || 'เกิดข้อผิดพลาดค่ะ';
+    showToast('❌ ' + msg, 'error');
+    console.error('registerMember error:', err);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🆕 สมัครสมาชิก'; }
   }
 }
-// ── /Member Tabs ──────────────────────────────────────────────
 
-
-
-
-
-async function searchMember() {
-  const code = $('mem-code')?.value.trim();
-  if (!code || code.length !== 4) { showToast('กรุณากรอกรหัส 4 หลักค่ะ','error'); return; }
-  const el = $('mem-result');
-  if (!el) return;
-  el.innerHTML = `<div class="shimmer" style="height:160px;margin-bottom:14px;"></div>`;
-  try {
-    const result = await api_getMemberByCode(code);
-    if (!result?.found) {
-      el.innerHTML = `
-        <div class="card" style="text-align:center;padding:32px 20px;color:var(--ink3)">
-          <div style="font-size:40px;margin-bottom:8px;">🔍</div>
-          ไม่พบสมาชิกรหัส <strong>${code}</strong>
-        </div>`;
-      state.member = null;
-      return;
-    }
-    state.member = result;
-    const m   = result;
-    const low = m.balance < 500;
-    el.innerHTML = `
-      <div class="member-card">
-        <div class="member-card-top">
-          <div>
-            <div class="member-card-name">${m.name}</div>
-            <div class="member-card-code">รหัส ${m.memberCode} · ${m.phone||''}</div>
-          </div>
-          ${m.expiry ? `<div class="member-card-exp">หมดอายุ<br>${m.expiry}</div>` : ''}
-        </div>
-        <div class="member-card-bal-label">ยอดเงินคงเหลือ</div>
-        <div class="member-card-bal" style="color:${low?'#FF9EC0':'#fff'}">
-          ฿${Number(m.balance).toLocaleString()}
-        </div>
-        ${low ? `<div class="member-card-warn">⚠️ ยอดใกล้หมดแล้วค่ะ</div>` : ''}
-      </div>
-      <div class="action-row">
-        <button class="btn-primary" onclick="showTopupModal()">💰 เติมเงิน</button>
-      </div>`;
-  } catch(err) {
-    el.innerHTML = `<div class="card" style="color:#EF4444;text-align:center;padding:24px">⚠️ ${err.message||'เชื่อมต่อไม่ได้'}<br><small style="color:var(--ink3);font-size:12px;margin-top:8px;display:block">ตรวจสอบ GAS URL และการเชื่อมต่อค่ะ</small></div>`;
-  }
-}
+// ── Search Tab → Topup Modal (deprecated — ใช้ tab แทน) ───────
 
 function showTopupModal() {
+  // เปลี่ยนไปใช้ tab เติมเงิน แล้ว autofill รหัส
   if (!state.member) return;
-  const m = state.member;
-  document.body.insertAdjacentHTML('beforeend', `
-    <div class="modal-bg show" id="topup-modal"
-      onclick="if(event.target===this)closeModal('topup-modal')">
-      <div class="modal">
-        <div class="modal-handle"></div>
-        <div class="modal-title">💰 เติมเงิน</div>
-        <div class="modal-sub">${m.name} · ยอดปัจจุบัน ฿${Number(m.balance).toLocaleString()}</div>
-        <div class="form-group">
-          <label class="form-label">ยอดเงินที่จ่าย (฿)</label>
-          <input class="form-input form-input-lg" id="topup-amount" type="number"
-            inputmode="numeric" placeholder="0" min="0" step="100">
-        </div>
-        <div class="form-group">
-          <label class="form-label">ช่องทางชำระ</label>
-          <div class="pay-chips">
-            ${PAYMENT_LIST.filter(p=>p.id!=='Member').map(p=>`
-              <button class="pay-chip ${p.id==='Cash'?'active':''}"
-                onclick="selectTopupPay('${p.id}')" data-tpay="${p.id}">
-                ${p.label}
-              </button>`).join('')}
-          </div>
-        </div>
-        <div id="topup-preview"></div>
-        <button class="btn-primary" onclick="doTopup()">✅ ยืนยันเติมเงิน</button>
-        <div style="height:8px"></div>
-        <button class="btn-secondary" onclick="closeModal('topup-modal')">ยกเลิก</button>
-      </div>
-    </div>
-  `);
-  $('topup-amount')?.addEventListener('input', updateTopupPreview);
-  $('topup-amount')?.focus();
+  switchMemberTab('topup');
+  autoFillTopupCode(state.member.memberCode);
 }
 
 function selectTopupPay(payId) {
@@ -939,57 +1006,18 @@ function selectTopupPay(payId) {
 
 function updateTopupPreview() {
   const amount = parseFloat($('topup-amount')?.value) || 0;
-  const cfg    = state.config;
-  const tier   = amount>=20000?(cfg.TIER_20K||27000):amount>=10000?(cfg.TIER_10K||13000):amount>=5000?(cfg.TIER_5K||6000):amount;
-  const bonus  = tier - amount;
+  const credit = calcCredit(amount, state.config || {});
+  const bonus  = credit - amount;
   const el     = $('topup-preview');
   if (!el) return;
   if (amount > 0) {
     el.innerHTML = `
       <div class="topup-preview-box">
         <div class="topup-preview-label">จะได้รับเครดิต</div>
-        <div class="topup-preview-val">฿${tier.toLocaleString()}</div>
+        <div class="topup-preview-val">฿${credit.toLocaleString()}</div>
         ${bonus>0?`<div class="topup-preview-bonus">โบนัส +฿${bonus.toLocaleString()}</div>`:''}
       </div>`;
   } else { el.innerHTML = ''; }
-}
-
-async function doTopup() {
-  const amount  = parseFloat($('topup-amount')?.value) || 0;
-  const payment = document.querySelector('[data-tpay].active')?.getAttribute('data-tpay') || 'Cash';
-  if (amount <= 0) { showToast('กรอกยอดเงินด้วยค่ะ','error'); return; }
-  try {
-    const result = await api_topupMember({
-      userId: state.userId, staffName: state.staffName,
-      memberCode: state.member.memberCode, payAmount: amount, payment,
-    });
-    if (result.ok === false) throw new Error(result.error);
-    showToast('✅ เติมเงินสำเร็จค่ะ','success');
-    closeModal('topup-modal');
-    await searchMember();
-    await loadTodayRecords();
-  } catch(err) { showToast('❌ '+(err.message||'เกิดข้อผิดพลาด'),'error'); }
-}
-
-async function registerMember() {
-  const phone  = $('reg-phone')?.value.trim();
-  const name   = $('reg-name')?.value.trim();
-  const code   = $('reg-code')?.value.trim();
-  const amount = parseFloat($('reg-amount')?.value) || 0;
-  if (!phone||!name||!code||amount<=0) {
-    showToast('กรุณากรอกข้อมูลให้ครบค่ะ','error'); return;
-  }
-  try {
-    const result = await api_registerMember({
-      userId: state.userId, staffName: state.staffName,
-      phone, name, memberCode: code, amount,
-    });
-    if (result.ok === false) throw new Error(result.error);
-    showToast(`✅ สมัครสมาชิก ${name} รหัส ${code} สำเร็จค่ะ`,'success');
-    ['reg-phone','reg-name','reg-code','reg-amount'].forEach(id => {
-      const el = $(id); if (el) el.value='';
-    });
-  } catch(err) { showToast('❌ '+(err.message||'เกิดข้อผิดพลาด'),'error'); }
 }
 
 /* ══════════════════════════════════════════════
@@ -1043,10 +1071,10 @@ async function loadSummaryPeriod(period, btn) {
     }
   } catch(e) {
     el.innerHTML = `
-      <div class="card" style="text-align:center;padding:32px 20px;color:var(--ink3)">
+      <div class="card" style="text-align:center;padding:32px 20px;">
         <div style="font-size:40px;margin-bottom:8px;">🔌</div>
-        <div style="font-size:14px;color:#EF4444;margin-bottom:6px;">เชื่อมต่อ API ไม่ได้ค่ะ</div>
-        <div style="font-size:12px;">${e.message||'ตรวจสอบ GAS URL'}</div>
+        <div style="font-size:14px;color:var(--red);margin-bottom:6px;">เชื่อมต่อ API ไม่ได้ค่ะ</div>
+        <div style="font-size:12px;color:var(--text3);">${e.message||'ตรวจสอบ GAS URL'}</div>
       </div>`;
   }
 }
@@ -1057,7 +1085,7 @@ function buildSummaryFromLocal(el) {
   const comm = Math.round(recs.reduce((s,r)=>s+r.price*(COMMISSION_RATE[r.service]||0.1),0));
   const byService = {};
   recs.forEach(r => {
-    byService[r.service] = (byService[r.service] || { price:0, count:0 });
+    if (!byService[r.service]) byService[r.service] = { price:0, count:0 };
     byService[r.service].price += r.price;
     byService[r.service].count += 1;
   });
@@ -1080,10 +1108,10 @@ function renderSummaryResult(data, el) {
     return `
       <div class="summary-row">
         <div class="summary-dot" style="background:${col}"></div>
-        <div class="summary-svc">${svc}${count?` <small style="color:var(--ink3)">(${count})</small>`:''}</div>
+        <div class="summary-svc">${svc}${count?` <small style="color:var(--text3)">(${count})</small>`:''}</div>
         <div>
           <div class="summary-comm">฿${c.toLocaleString()}</div>
-          <div style="font-size:11px;color:var(--ink3);text-align:right">฿${Number(price).toLocaleString()}</div>
+          <div style="font-size:11px;color:var(--text3);text-align:right">฿${Number(price).toLocaleString()}</div>
         </div>
       </div>`;
   }).join('');
@@ -1121,8 +1149,18 @@ async function loadConfig() {
 }
 
 /* ══════════════════════════════════════════════
-   UTILITIES
+   HELPERS
 ══════════════════════════════════════════════ */
+function calcCredit(amount, cfg) {
+  const t20 = cfg.TIER_20K || 27000;
+  const t10 = cfg.TIER_10K || 13000;
+  const t5  = cfg.TIER_5K  || 6000;
+  if (amount >= 20000) return t20;
+  if (amount >= 10000) return t10;
+  if (amount >= 5000)  return t5;
+  return amount;
+}
+
 function closeModal(id) { document.getElementById(id)?.remove(); }
 
 let _tt;
@@ -1130,7 +1168,7 @@ function showToast(msg, type='') {
   const t = $('toast') || document.querySelector('.toast');
   if (!t) return;
   t.textContent = msg; t.className = `toast show ${type}`;
-  clearTimeout(_tt); _tt = setTimeout(() => t.classList.remove('show'), 3000);
+  clearTimeout(_tt); _tt = setTimeout(() => t.classList.remove('show'), 3500);
 }
 
 function setupOfflineDetect() {
