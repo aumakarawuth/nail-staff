@@ -49,6 +49,7 @@ body {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
   overflow: hidden;
+  height: 100dvh;
 }
 
 body.keyboard-open #app {
@@ -83,8 +84,11 @@ body.keyboard-open #app {
   padding-bottom: env(safe-area-inset-bottom, 0px);
   z-index: 100;
   will-change: auto;
-  transform: none !important;
+  transform: translateZ(0);
   transition: none !important;
+  /* รองรับ Safari browser bar */
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 0px);
+  margin-bottom: 0;
 }
 
 /* เพิ่ม padding ด้านล่างของ page ให้เนื้อหาไม่ถูก nav บัง */
