@@ -82,8 +82,7 @@ body.keyboard-open #app {
   border-top: 1.5px solid var(--border);
   display: flex;
   z-index: 100;
-  /* ลบ padding-bottom ทิ้งหมด ไม่ต้องการ safe area */
-  padding-bottom: 0;
+  padding-bottom: 0;          /* ← ไม่ต้องการ safe area padding */
 }
 
 .nav-item {
@@ -92,7 +91,7 @@ body.keyboard-open #app {
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  padding: 10px 0 8px;  /* ← ลด padding bottom ลง เพราะ safe area จัดการแล้ว */
+  padding: 10px 0 10px;       /* ← padding สม่ำเสมอ ไม่เว้นล่าง */
   background: none;
   border: none;
   font-family: var(--ff);
@@ -106,7 +105,11 @@ body.keyboard-open #app {
 
 /* เพิ่ม padding ด้านล่างของ page ให้เนื้อหาไม่ถูก nav บัง */
 .page {
-  padding-bottom: calc(54px + env(safe-area-inset-bottom, 0px)) !important;
+  padding-bottom: 70px !important;   /* ← ค่า fixed แทน calc ที่ซับซ้อน */
+}
+
+body.keyboard-open .page {
+  padding-bottom: 16px !important;
 }
 
 /* ── Loading ── */
