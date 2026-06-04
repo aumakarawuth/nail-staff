@@ -74,7 +74,8 @@ async function api_saveRecord(payload) {
 
 /** ค้นหาสมาชิกด้วยรหัส 4 หลัก */
 async function api_getMemberByCode(code) {
-  return gasGet({ action: 'getMemberByCode', code });
+  const padded = String(code).padStart(4, '0');
+  return gasGet({ action: 'getMemberByCode', code: padded });
 }
 
 /** เติมเงินสมาชิก */
