@@ -650,38 +650,46 @@ function renderMember() {
     </div>
 
     <!-- สมัครสมาชิก -->
-    <div id="mem-pane-register" style="display:none;">
-      <div class="card">
-        <div class="card-title">🆕 สมัครสมาชิกใหม่</div>
-        <div class="register-hint">
-          💡 กรอกข้อมูลให้ครบทุกช่อง · รหัส 4 หลักต้องไม่ซ้ำกับสมาชิกอื่น
-        </div>
-        <div class="form-group">
-          <label class="form-label">ชื่อสมาชิก</label>
-          <input class="form-input" id="reg-name-tab" type="text"
-            placeholder="ชื่อ-นามสกุล" autocomplete="off">
-        </div>
-        <div class="form-group">
-          <label class="form-label">เบอร์โทร</label>
-          <input class="form-input" id="reg-phone-tab" type="tel"
-            inputmode="tel" placeholder="0812345678" maxlength="10">
-        </div>
-        <div class="form-row-2">
-          <div class="form-group">
-            <label class="form-label">รหัส 4 หลัก</label>
-            <input class="form-input" id="reg-code-tab" type="number"
-              inputmode="numeric" placeholder="1234" maxlength="4">
-          </div>
-          <div class="form-group">
-            <label class="form-label">ยอดเปิด (฿)</label>
-            <input class="form-input" id="reg-amount-tab" type="number"
-              inputmode="numeric" placeholder="0" oninput="updateRegTabPreview()">
-          </div>
-        </div>
-        <div id="reg-tab-preview"></div>
-        <button class="btn-primary btn-violet" id="reg-submit-btn" onclick="registerMemberTab()">🆕 สมัครสมาชิก</button>
+<div id="mem-pane-register" style="display:none;">
+  <div class="card">
+    <div class="card-title">🆕 สมัครสมาชิกใหม่</div>
+    <div class="register-hint">
+      💡 กรอกข้อมูลให้ครบทุกช่อง · รหัส 4 หลักต้องไม่ซ้ำกับสมาชิกอื่น
+    </div>
+    <div class="form-group">
+      <label class="form-label">ชื่อสมาชิก</label>
+      <input class="form-input" id="reg-name-tab" type="text"
+        placeholder="ชื่อ-นามสกุล" autocomplete="off">
+    </div>
+    <div class="form-group">
+      <label class="form-label">เบอร์โทร</label>
+      <input class="form-input" id="reg-phone-tab" type="tel"
+        inputmode="tel" placeholder="0812345678" maxlength="10">
+    </div>
+    <div class="form-row-2">
+      <div class="form-group">
+        <label class="form-label">รหัส 4 หลัก</label>
+        <input class="form-input" id="reg-code-tab" type="number"
+          inputmode="numeric" placeholder="1234" maxlength="4">
+      </div>
+      <div class="form-group">
+        <label class="form-label">ยอดเปิด (฿)</label>
+        <input class="form-input" id="reg-amount-tab" type="number"
+          inputmode="numeric" placeholder="0" oninput="updateRegTabPreview()">
       </div>
     </div>
+    <div class="form-group">
+      <label class="form-label">💳 ชำระด้วย</label>
+      <div class="pay-chips" id="reg-pay-chips">
+        <button class="pay-chip active" data-pay="Cash"     onclick="selectRegPay(this)">💵 สด</button>
+        <button class="pay-chip"        data-pay="Transfer" onclick="selectRegPay(this)">📲 โอน</button>
+        <button class="pay-chip"        data-pay="Credit"   onclick="selectRegPay(this)">💳 รูด</button>
+      </div>
+    </div>
+    <div id="reg-tab-preview"></div>
+    <button class="btn-primary btn-violet" id="reg-submit-btn" onclick="registerMemberTab()">🆕 สมัครสมาชิก</button>
+  </div>
+</div>
   `;
 
   $('mem-code')?.addEventListener('keydown', e => { if (e.key === 'Enter') searchMember(); });
@@ -952,6 +960,9 @@ async function registerMemberTab() {
   if (code.length !== 4) { showToast('รหัสต้องเป็น 4 หลักพอดีค่ะ', 'error');     $('reg-code-tab')?.focus();   return; }
   if (amount <= 0)       { showToast('กรุณากรอกยอดเปิดบัญชีค่ะ', 'error');       $('reg-amount-tab')?.focus(); return; }
 
+   const payment = document.querySelector('#reg-pay-chips .pay-chip.active')
+                  ?.getAttribute('data-pay') || 'Cash';
+
   const btn = $('reg-submit-btn');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ กำลังสมัคร...'; }
 
@@ -963,6 +974,7 @@ async function registerMemberTab() {
       phone,
       memberCode: code,
       amount,
+       payment,
     };
 
     // DEBUG — ดูว่าส่งอะไรไป และได้อะไรกลับมา
@@ -1208,4 +1220,11 @@ function triggerInstall() {
 function dismissInstall() {
   localStorage.setItem('nk_install_dismissed','1');
   $('install-prompt')?.classList.remove('show');
+}
+
+
+function selectRegPay(btn) {
+  document.querySelectorAll('#reg-pay-chips .pay-chip')
+    .forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
 }
