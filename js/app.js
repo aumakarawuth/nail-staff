@@ -76,24 +76,19 @@ function setupKeyboardDetect() {
   if (!window.visualViewport) return;
   const THRESHOLD = 150;
 
-  function onViewportResize() {
-    const vvh = window.visualViewport.height;
-    const fullH = window.screen.height;
-    const diff = window.innerHeight - vvh;
-
-    // อัปเดต CSS variable ให้ตรงกับ viewport จริง
-    document.documentElement.style.setProperty('--vvh', vvh + 'px');
+  function onViewportChange() {
+    const vvh    = window.visualViewport.height;
+    const fullH  = window.innerHeight;
+    const diff   = fullH - vvh;
 
     if (diff > THRESHOLD) {
       document.body.classList.add('keyboard-open');
     } else {
       document.body.classList.remove('keyboard-open');
-      document.documentElement.style.setProperty('--vvh', '100vh');
     }
   }
 
-  window.visualViewport.addEventListener('resize', onViewportResize);
-  window.visualViewport.addEventListener('scroll', onViewportResize);
+  window.visualViewport.addEventListener('resize', onViewportChange);
 }
 
 /* ══════════════════════════════════════════════
