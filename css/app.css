@@ -80,7 +80,7 @@ body.keyboard-open #app {
   background: #fff;
   border-top: 1.5px solid var(--border);
   display: flex;
-  padding-bottom: var(--sab);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   z-index: 100;
   will-change: auto;
   transform: none !important;
@@ -89,7 +89,7 @@ body.keyboard-open #app {
 
 /* เพิ่ม padding ด้านล่างของ page ให้เนื้อหาไม่ถูก nav บัง */
 .page {
-  padding-bottom: calc(70px + var(--sab) + 24px) !important;
+  padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px)) !important;
 }
 
 /* ── Loading ── */
@@ -441,7 +441,7 @@ body.keyboard-open .bottom-nav {
 }
 
 body.keyboard-open .page {
-  padding-bottom: 24px !important;
+  padding-bottom: 16px !important;
 }
 
 @media (min-width:480px) { .page{padding:24px 24px 40px;} }
