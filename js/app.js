@@ -945,46 +945,53 @@ async function registerMemberTab() {
   const code   = $('reg-code-tab')?.value.trim();
   const amount = parseFloat($('reg-amount-tab')?.value) || 0;
 
-  // Validation ละเอียดขึ้น
-  if (!name)          { showToast('กรุณากรอกชื่อสมาชิกค่ะ', 'error');     $('reg-name-tab')?.focus();   return; }
-  if (!phone)         { showToast('กรุณากรอกเบอร์โทรค่ะ', 'error');        $('reg-phone-tab')?.focus();  return; }
-  if (phone.length < 9) { showToast('เบอร์โทรต้องอย่างน้อย 9 หลักค่ะ', 'error'); $('reg-phone-tab')?.focus(); return; }
-  if (!code)          { showToast('กรุณากรอกรหัส 4 หลักค่ะ', 'error');     $('reg-code-tab')?.focus();   return; }
-  if (code.length !== 4) { showToast('รหัสต้องเป็น 4 หลักพอดีค่ะ', 'error'); $('reg-code-tab')?.focus(); return; }
-  if (amount <= 0)    { showToast('กรุณากรอกยอดเปิดบัญชีค่ะ', 'error');    $('reg-amount-tab')?.focus(); return; }
+  if (!name)             { showToast('กรุณากรอกชื่อสมาชิกค่ะ', 'error');        $('reg-name-tab')?.focus();   return; }
+  if (!phone)            { showToast('กรุณากรอกเบอร์โทรค่ะ', 'error');           $('reg-phone-tab')?.focus();  return; }
+  if (phone.length < 9)  { showToast('เบอร์โทรต้องอย่างน้อย 9 หลักค่ะ', 'error'); $('reg-phone-tab')?.focus(); return; }
+  if (!code)             { showToast('กรุณากรอกรหัส 4 หลักค่ะ', 'error');        $('reg-code-tab')?.focus();   return; }
+  if (code.length !== 4) { showToast('รหัสต้องเป็น 4 หลักพอดีค่ะ', 'error');     $('reg-code-tab')?.focus();   return; }
+  if (amount <= 0)       { showToast('กรุณากรอกยอดเปิดบัญชีค่ะ', 'error');       $('reg-amount-tab')?.focus(); return; }
 
   const btn = $('reg-submit-btn');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ กำลังสมัคร...'; }
 
   try {
-    const result = await api_registerMember({
+    const payload = {
       userId:     state.userId,
       staffName:  state.staffName,
       name,
       phone,
       memberCode: code,
       amount,
-    });
+    };
 
-    // FIX 2: ตรวจสอบ response ให้ครอบคลุม
-    if (result.ok === false) throw new Error(result.error || result.message || 'สมัครไม่สำเร็จ');
+    // DEBUG — ดูว่าส่งอะไรไป และได้อะไรกลับมา
+    console.log('📤 registerMember payload:', JSON.stringify(payload));
+
+    const result = await api_registerMember(payload);
+
+    console.log('📥 registerMember result:', JSON.stringify(result));
+
+    // รองรับ response หลายรูปแบบจาก GAS
+    const isOk = result.ok === true || result.status === 'ok' || result.success === true;
+    const isErr = result.ok === false || result.status === 'error' || result.error || result.message?.toLowerCase().includes('error');
+
+    if (isErr && !isOk) {
+      throw new Error(result.error || result.message || JSON.stringify(result));
+    }
 
     showToast(`✅ สมัครสมาชิก ${name} รหัส ${code} สำเร็จค่ะ`, 'success');
 
-    // reset form
     ['reg-name-tab','reg-phone-tab','reg-code-tab','reg-amount-tab'].forEach(id => {
       const el = $(id); if (el) el.value = '';
     });
     if ($('reg-tab-preview')) $('reg-tab-preview').innerHTML = '';
 
-    // reload records เพื่ออัปเดตหน้าหลัก
     await loadTodayRecords();
 
   } catch(err) {
-    // FIX 2: แสดง error message จาก server ให้ชัดเจน
-    const msg = err.message || 'เกิดข้อผิดพลาดค่ะ';
-    showToast('❌ ' + msg, 'error');
-    console.error('registerMember error:', err);
+    console.error('❌ registerMember error:', err);
+    showToast('❌ ' + (err.message || 'เกิดข้อผิดพลาดค่ะ'), 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '🆕 สมัครสมาชิก'; }
   }
