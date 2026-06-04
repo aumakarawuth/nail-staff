@@ -435,8 +435,7 @@ body {
 
 /* เมื่อ keyboard เปิด (class เพิ่มโดย JS) ให้ nav ซ่อนอยู่ที่ bottom:0 เสมอ */
 body.keyboard-open .bottom-nav {
-  bottom: 0 !important;
-  transform: none !important;
+  display: none !important;
 }
 
 @media (min-width:480px) { .page{padding:24px 24px 40px;} }
