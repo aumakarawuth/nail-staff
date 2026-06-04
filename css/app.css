@@ -46,13 +46,14 @@ body {
 #app {
   display: flex;
   flex-direction: column;
-  /* ไม่ใช้ height:100vh เพราะ keyboard จะดัน */
-  /* ใช้ position+inset แทน */
   position: fixed;
-  top: 0; left: 0; right: 0;
-  /* bottom ไม่ระบุ — ปล่อยให้ content ยาวได้ */
-  bottom: 0;
+  top: 0; left: 0; right: 0; bottom: 0;
   overflow: hidden;
+}
+
+body.keyboard-open #app {
+  bottom: auto !important;
+  height: var(--vvh, 100vh) !important;
 }
 
 /* Top bar + pages-wrap กินพื้นที่ด้านบน */
