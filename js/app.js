@@ -81,8 +81,13 @@ function setupKeyboardDetect() {
     const diff = fullH - window.visualViewport.height;
     if (diff > THRESHOLD) {
       document.body.classList.add('keyboard-open');
+      // ขยับ page ขึ้นตาม viewport จริง
+      const app = document.getElementById('app');
+      if (app) app.style.bottom = (fullH - window.visualViewport.height) + 'px';
     } else {
       document.body.classList.remove('keyboard-open');
+      const app = document.getElementById('app');
+      if (app) app.style.bottom = '0';
     }
   });
 }
