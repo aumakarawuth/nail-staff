@@ -81,19 +81,32 @@ body.keyboard-open #app {
   background: #fff;
   border-top: 1.5px solid var(--border);
   display: flex;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
   z-index: 100;
-  will-change: auto;
-  transform: translateZ(0);
-  transition: none !important;
-  /* รองรับ Safari browser bar */
-  padding-bottom: max(env(safe-area-inset-bottom, 0px), 0px);
-  margin-bottom: 0;
+  /* safe area สำหรับ iPhone notch/home indicator */
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+}
+
+.nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 10px 0 8px;  /* ← ลด padding bottom ลง เพราะ safe area จัดการแล้ว */
+  background: none;
+  border: none;
+  font-family: var(--ff);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink3);
+  cursor: pointer;
+  transition: color .15s;
+  min-height: 54px;
 }
 
 /* เพิ่ม padding ด้านล่างของ page ให้เนื้อหาไม่ถูก nav บัง */
 .page {
-  padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px)) !important;
+  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
 }
 
 /* ── Loading ── */
@@ -173,12 +186,12 @@ body.keyboard-open #app {
 .staff-chip-name { font-size:14px; font-weight:600; color:var(--rose2); max-width:90px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 /* ── Nav items ── */
-.nav-item {
+/* .nav-item {
   flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
   padding:10px 0; background:none; border:none;
   font-family:var(--ff); font-size:10px; font-weight:600; color:var(--ink3);
   cursor:pointer; transition:color .15s; min-height:54px;
-}
+} */
 .nav-item .icon { font-size:20px; }
 .nav-item.active { color:var(--rose); }
 
