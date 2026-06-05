@@ -494,18 +494,18 @@ function updateCommPreview() {
 
   // ── คำนวณค่าธรรมเนียมรูดบัตร ──
   let creditFeeHtml = '';
-  if (state.selectedPayment === 'Credit' && price > 0 && price < 2000) {
-    const fee     = Math.round(price * 0.03);
-    const netGet  = price - fee;
+   if (state.selectedPayment === 'Credit' && price > 0 && price < 2000) {
+    const fee      = Math.round(price * 0.03);
+    const totalGet = price + fee;  // ← บวกแทน
     creditFeeHtml = `
       <div class="credit-fee-preview">
         <div class="credit-fee-row">
-          <span>💳 ค่าธรรมเนียมรูด 3%</span>
-          <span class="credit-fee-amt">-฿${fee.toLocaleString()}</span>
+          <span>💳 บวกเพิ่ม 3% (รูดต่ำกว่า ฿2,000)</span>
+          <span class="credit-fee-amt">+฿${fee.toLocaleString()}</span>
         </div>
         <div class="credit-fee-row credit-fee-net">
-          <span>ร้านได้รับสุทธิ</span>
-          <span>฿${netGet.toLocaleString()}</span>
+          <span>ยอดที่เรียกเก็บจริง</span>
+          <span>฿${totalGet.toLocaleString()}</span>
         </div>
       </div>`;
   }
