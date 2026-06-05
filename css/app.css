@@ -125,6 +125,11 @@ body.keyboard-open .page { padding-bottom: 20px !important; }
 }
 
 .top-logo {
+  flex: 1;
+  min-width: 0;
+}
+
+.top-logo {
   font-family: var(--ff);
   font-style: italic;
   font-size: 20px;
