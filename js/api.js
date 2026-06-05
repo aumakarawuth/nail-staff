@@ -107,3 +107,21 @@ async function api_getSummary(userId, period = 'day') {
 async function api_requestVoid(payload) {
   return gasPost({ action: 'staffRequestVoid', ...payload });
 }
+
+
+
+
+/** Owner — ดึงรายการวันนี้ทุกพนักงาน */
+async function api_ownerGetTodayRecords(userId) {
+  return gasPost({ action: 'ownerGetTodayRecords', userId });
+}
+
+/** Owner — แก้ไขรายการ */
+async function api_ownerUpdateRecord(payload) {
+  return gasPost({ action: 'ownerUpdateRecord', ...payload });
+}
+
+/** Owner — ลบรายการ */
+async function api_ownerDeleteRecord(payload) {
+  return gasPost({ action: 'ownerDeleteRecord', ...payload });
+}
