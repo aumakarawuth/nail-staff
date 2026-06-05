@@ -492,12 +492,30 @@ function updateCommPreview() {
   const el    = $('rec-preview');
   if (!el) return;
 
+  // ── คำนวณค่าธรรมเนียมรูดบัตร ──
+  let creditFeeHtml = '';
+  if (state.selectedPayment === 'Credit' && price > 0 && price < 2000) {
+    const fee     = Math.round(price * 0.03);
+    const netGet  = price - fee;
+    creditFeeHtml = `
+      <div class="credit-fee-preview">
+        <div class="credit-fee-row">
+          <span>💳 ค่าธรรมเนียมรูด 3%</span>
+          <span class="credit-fee-amt">-฿${fee.toLocaleString()}</span>
+        </div>
+        <div class="credit-fee-row credit-fee-net">
+          <span>ร้านได้รับสุทธิ</span>
+          <span>฿${netGet.toLocaleString()}</span>
+        </div>
+      </div>`;
+  }
+
   let memberWarn = '';
   if (state.selectedPayment === 'Member' && state.recordMember && price > 0) {
     const after     = state.recordMember.balance - price;
     const overdrawn = after < 0;
     memberWarn = `
-      <div class="member-deduct-preview ${overdrawn?'overdrawn':''}">
+      <div class="member-deduct-preview ${overdrawn ? 'overdrawn' : ''}">
         <span>${overdrawn ? '⚠️ ยอดไม่พอ' : '🏷️ หักจากเมมเบอร์'}</span>
         <span>฿${Number(state.recordMember.balance).toLocaleString()} → <strong>฿${after.toLocaleString()}</strong></span>
       </div>`;
@@ -505,14 +523,15 @@ function updateCommPreview() {
 
   if (svc && price > 0) {
     el.innerHTML = `
+      ${creditFeeHtml}
       <div class="comm-preview">
         <span class="comm-preview-label">ค่าคอม</span>
         <span class="comm-preview-val">฿${comm.toLocaleString()}</span>
-        <span class="comm-preview-rate">${(rate*100).toFixed(0)}%</span>
+        <span class="comm-preview-rate">${(rate * 100).toFixed(0)}%</span>
       </div>
       ${memberWarn}`;
   } else {
-    el.innerHTML = memberWarn;
+    el.innerHTML = creditFeeHtml + memberWarn;
   }
 }
 
