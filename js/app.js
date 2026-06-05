@@ -661,17 +661,27 @@ function renderMember() {
       <input class="form-input" id="reg-name-tab" type="text"
         placeholder="ชื่อ-นามสกุล" autocomplete="off">
     </div>
-    <div class="form-group">
-      <label class="form-label">เบอร์โทร</label>
-      <input class="form-input" id="reg-phone-tab" type="tel"
-        inputmode="tel" placeholder="0812345678" maxlength="10">
-    </div>
+       <div class="form-group">
+         <label class="form-label">เบอร์โทร</label>
+         <input class="form-input" id="reg-phone-tab"
+           type="tel"
+           inputmode="tel"
+           placeholder="0812345678"
+           maxlength="10"
+           oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)">
+       </div>
     <div class="form-row-2">
-      <div class="form-group">
-        <label class="form-label">รหัส 4 หลัก</label>
-        <input class="form-input" id="reg-code-tab" type="number"
-          inputmode="numeric" placeholder="1234" maxlength="4">
-      </div>
+       <div class="form-group">
+         <label class="form-label">รหัส 4 หลัก</label>
+         <input class="form-input" id="reg-code-tab"
+           type="text"
+           inputmode="numeric"
+           placeholder="1234"
+           maxlength="4"
+           pattern="[0-9]{4}"
+           oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,4)"
+           style="letter-spacing:6px;font-size:20px;font-family:var(--ff-mono);">
+       </div>
       <div class="form-group">
         <label class="form-label">ยอดเปิด (฿)</label>
         <input class="form-input" id="reg-amount-tab" type="number"
@@ -949,58 +959,62 @@ function updateRegTabPreview() {
 ══════════════════════════════════════════════ */
 async function registerMemberTab() {
   const name   = $('reg-name-tab')?.value.trim();
-  const phone  = $('reg-phone-tab')?.value.trim();
-  const code   = $('reg-code-tab')?.value.trim();
+  const phone  = $('reg-phone-tab')?.value.replace(/\D/g, '');   // ดึงเฉพาะตัวเลข
+  const code   = $('reg-code-tab')?.value.replace(/\D/g, '');    // ดึงเฉพาะตัวเลข
   const amount = parseFloat($('reg-amount-tab')?.value) || 0;
-
-  if (!name)             { showToast('กรุณากรอกชื่อสมาชิกค่ะ', 'error');        $('reg-name-tab')?.focus();   return; }
-  if (!phone)            { showToast('กรุณากรอกเบอร์โทรค่ะ', 'error');           $('reg-phone-tab')?.focus();  return; }
-  if (phone.length < 9)  { showToast('เบอร์โทรต้องอย่างน้อย 9 หลักค่ะ', 'error'); $('reg-phone-tab')?.focus(); return; }
-  if (!code)             { showToast('กรุณากรอกรหัส 4 หลักค่ะ', 'error');        $('reg-code-tab')?.focus();   return; }
-  if (code.length !== 4) { showToast('รหัสต้องเป็น 4 หลักพอดีค่ะ', 'error');     $('reg-code-tab')?.focus();   return; }
-  if (amount <= 0)       { showToast('กรุณากรอกยอดเปิดบัญชีค่ะ', 'error');       $('reg-amount-tab')?.focus(); return; }
-
-   const payment = document.querySelector('#reg-pay-chips .pay-chip.active')
-                  ?.getAttribute('data-pay') || 'Cash';
-
+  const payment = document.querySelector('#reg-pay-chips .pay-chip.active')
+                    ?.getAttribute('data-pay') || 'Cash';
+ 
+  // ── Validate ──
+  if (!name)              { showToast('กรุณากรอกชื่อสมาชิกค่ะ', 'error');          $('reg-name-tab')?.focus();   return; }
+  if (!phone)             { showToast('กรุณากรอกเบอร์โทรค่ะ', 'error');            $('reg-phone-tab')?.focus();  return; }
+  if (phone.length < 9)   { showToast('เบอร์โทรต้องอย่างน้อย 9 หลักค่ะ', 'error'); $('reg-phone-tab')?.focus();  return; }
+  if (phone.length > 10)  { showToast('เบอร์โทรต้องไม่เกิน 10 หลักค่ะ', 'error');  $('reg-phone-tab')?.focus();  return; }
+  if (!code)              { showToast('กรุณากรอกรหัส 4 หลักค่ะ', 'error');          $('reg-code-tab')?.focus();   return; }
+  if (code.length !== 4)  { showToast('รหัสต้องเป็น 4 หลักพอดีค่ะ', 'error');       $('reg-code-tab')?.focus();   return; }
+  if (amount <= 0)        { showToast('กรุณากรอกยอดเปิดบัญชีค่ะ', 'error');        $('reg-amount-tab')?.focus(); return; }
+ 
+  // ── normalize เบอร์ฝั่ง client ก่อนส่ง (9 หลัก → เติม 0) ──
+  const phoneNorm = phone.length === 9 ? '0' + phone : phone;
+ 
   const btn = $('reg-submit-btn');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ กำลังสมัคร...'; }
-
+ 
   try {
     const payload = {
       userId:     state.userId,
       staffName:  state.staffName,
       name,
-      phone,
+      phone:      phoneNorm,   // ส่งเบอร์ที่ normalize แล้ว
       memberCode: code,
       amount,
-       payment,
+      payment,
     };
-
-    // DEBUG — ดูว่าส่งอะไรไป และได้อะไรกลับมา
+ 
     console.log('📤 registerMember payload:', JSON.stringify(payload));
-
+ 
     const result = await api_registerMember(payload);
-
+ 
     console.log('📥 registerMember result:', JSON.stringify(result));
-
-    // รองรับ response หลายรูปแบบจาก GAS
-    const isOk = result.ok === true || result.status === 'ok' || result.success === true;
-    const isErr = result.ok === false || result.status === 'error' || result.error || result.message?.toLowerCase().includes('error');
-
-    if (isErr && !isOk) {
-      throw new Error(result.error || result.message || JSON.stringify(result));
+ 
+    if (result.ok === false) {
+      throw new Error(result.error || 'บันทึกไม่สำเร็จ');
     }
-
+ 
     showToast(`✅ สมัครสมาชิก ${name} รหัส ${code} สำเร็จค่ะ`, 'success');
-
-    ['reg-name-tab','reg-phone-tab','reg-code-tab','reg-amount-tab'].forEach(id => {
+ 
+    // clear form
+    ['reg-name-tab', 'reg-phone-tab', 'reg-code-tab', 'reg-amount-tab'].forEach(id => {
       const el = $(id); if (el) el.value = '';
     });
     if ($('reg-tab-preview')) $('reg-tab-preview').innerHTML = '';
-
+    // reset payment chip กลับเป็น Cash
+    document.querySelectorAll('#reg-pay-chips .pay-chip').forEach((b, i) => {
+      b.classList.toggle('active', i === 0);
+    });
+ 
     await loadTodayRecords();
-
+ 
   } catch(err) {
     console.error('❌ registerMember error:', err);
     showToast('❌ ' + (err.message || 'เกิดข้อผิดพลาดค่ะ'), 'error');
@@ -1008,6 +1022,7 @@ async function registerMemberTab() {
     if (btn) { btn.disabled = false; btn.textContent = '🆕 สมัครสมาชิก'; }
   }
 }
+ 
 
 // ── Search Tab → Topup Modal (deprecated — ใช้ tab แทน) ───────
 
