@@ -46,6 +46,8 @@ const state = {
   selectedService: '',
   recordMember: null,
   deferredInstallPrompt: null,
+  _pollTimer: null,        // ← เพิ่ม
+  _lastRefresh: null,      // ← เพิ่ม
 };
 
 const OWNER_ID = 'Uccd1338e1f146d4bbc0988bb98d7b124'; // UID เจ้าของร้าน
@@ -175,6 +177,7 @@ async function afterLogin() {
   loadTodayRecords().then(() => {
     if (state.page === 'home') renderHome();
   });
+  startPolling(); // ← เพิ่มบรรทัดนี้
 }
 
 /* ══════════════════════════════════════════════
@@ -191,7 +194,14 @@ function renderAppShell() {
     <div id="app">
       <div class="top-bar">
         <div class="top-logo">💅 Nail Kloset<small>Staff Portal</small></div>
-        <div class="staff-chip">${av}<div class="staff-chip-name">${state.staffName}</div></div>
+        <div style="display:flex;align-items:center;gap:8px;">
+  <div style="text-align:right;">
+    <span id="refresh-time" style="font-size:9px;color:var(--text3);display:block;letter-spacing:0.5px;"></span>
+    <button id="refresh-btn" onclick="manualRefresh()"
+      style="background:none;border:none;font-size:18px;cursor:pointer;padding:2px;color:var(--text3);line-height:1;">🔄</button>
+  </div>
+  <div class="staff-chip">${av}<div class="staff-chip-name">${state.staffName}</div></div>
+</div>
       </div>
       <div class="pages-wrap">
         <div id="page-home"    class="page"></div>
@@ -1478,3 +1488,68 @@ async function doDeleteRecord(rowId) {
     btn.disabled = false; btn.textContent = '🗑️ ยืนยันลบ';
   }
 }
+
+
+
+/* ══════════════════════════════════════════════
+   AUTO REFRESH — polling ทุก 60 วินาที
+══════════════════════════════════════════════ */
+const POLL_INTERVAL = 60000; // 60 วินาที
+
+function startPolling() {
+  stopPolling();
+  state._pollTimer = setInterval(async () => {
+    // refresh เฉพาะตอนแอปอยู่ foreground
+    if (document.hidden) return;
+    await silentRefresh();
+  }, POLL_INTERVAL);
+}
+
+function stopPolling() {
+  if (state._pollTimer) {
+    clearInterval(state._pollTimer);
+    state._pollTimer = null;
+  }
+}
+
+async function silentRefresh() {
+  try {
+    await loadTodayRecords();
+    state._lastRefresh = new Date();
+    updateRefreshTime();
+
+    // อัปเดต UI ตาม page ที่เปิดอยู่
+    if (state.page === 'home')    refreshHomeStats();
+    if (state.page === 'summary') loadSummaryPeriod('day', null);
+    if (state.page === 'manage')  loadManageRecords();
+  } catch(e) {}
+}
+
+function updateRefreshTime() {
+  const el = $('refresh-time');
+  if (!el || !state._lastRefresh) return;
+  const h = String(state._lastRefresh.getHours()).padStart(2, '0');
+  const m = String(state._lastRefresh.getMinutes()).padStart(2, '0');
+  const s = String(state._lastRefresh.getSeconds()).padStart(2, '0');
+  el.textContent = `อัปเดต ${h}:${m}:${s}`;
+}
+
+async function manualRefresh() {
+  const btn = $('refresh-btn');
+  if (btn) { btn.style.transform = 'rotate(360deg)'; btn.style.transition = 'transform 0.5s ease'; }
+  await silentRefresh();
+  setTimeout(() => {
+    if (btn) { btn.style.transform = ''; btn.style.transition = ''; }
+  }, 500);
+  showToast('🔄 อัปเดตแล้วค่ะ', 'success');
+}
+
+// หยุด polling เมื่อซ่อนแอป, เริ่มใหม่เมื่อกลับมา
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopPolling();
+  } else {
+    silentRefresh(); // refresh ทันทีที่กลับมา
+    startPolling();
+  }
+});
