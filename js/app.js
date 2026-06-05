@@ -353,8 +353,9 @@ function renderRecord() {
     <div class="card" id="rec-price-card" style="${state.selectedService?'':'opacity:.45; pointer-events:none'}">
       <div class="form-group">
         <label class="form-label">💰 ราคา (บาท)</label>
-        <input class="form-input form-input-lg" id="rec-price" type="number"
-          inputmode="numeric" placeholder="0" min="0" step="1">
+         <input class="form-input form-input-lg" id="rec-price" type="number"
+           inputmode="numeric" placeholder="0" min="0" step="1"
+           readonly onfocus="this.removeAttribute('readonly')">
       </div>
 
       <div class="form-group">
@@ -413,7 +414,6 @@ function selectService(svcId) {
   });
   const card = $('rec-price-card');
   if (card) { card.style.opacity='1'; card.style.pointerEvents='auto'; }
-  $('rec-price')?.focus();
   updateCommPreview();
 }
 
