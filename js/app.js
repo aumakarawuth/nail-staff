@@ -48,6 +48,7 @@ const state = {
   deferredInstallPrompt: null,
 };
 
+const OWNER_ID = 'Uccd1338e1f146d4bbc0988bb98d7b124'; // UID เจ้าของร้าน
 const $ = id => document.getElementById(id);
 
 /* ══════════════════════════════════════════════
@@ -197,12 +198,14 @@ function renderAppShell() {
         <div id="page-record"  class="page"></div>
         <div id="page-member"  class="page"></div>
         <div id="page-summary" class="page"></div>
+         <div id="page-manage"  class="page"></div>
       </div>
       <nav class="bottom-nav">
         <button class="nav-item" id="nav-home"    onclick="goPage('home')">   <span class="icon">🏠</span>หน้าหลัก</button>
         <button class="nav-item" id="nav-record"  onclick="goPage('record')"><span class="icon">✏️</span>บันทึกงาน</button>
         <button class="nav-item" id="nav-member"  onclick="goPage('member')"> <span class="icon">💳</span>สมาชิก</button>
         <button class="nav-item" id="nav-summary" onclick="goPage('summary')"><span class="icon">📊</span>สรุปยอด</button>
+         ${state.userId === OWNER_ID ? `<button class="nav-item" id="nav-manage" onclick="goPage('manage')"><span class="icon">⚙️</span>จัดการ</button>` : ''}
       </nav>
     </div>
     <div id="install-prompt">
@@ -242,6 +245,7 @@ function goPage(page) {
     switchMemberTab(_memTab || 'search');
   }
   if (page === 'summary') renderSummary();
+   if (page === 'manage') renderManage();
 }
 
 /* ══════════════════════════════════════════════
@@ -1299,4 +1303,178 @@ function selectRegPay(btn) {
   document.querySelectorAll('#reg-pay-chips .pay-chip')
     .forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
+}
+
+
+
+
+
+/* ══════════════════════════════════════════════
+   MANAGE PAGE (เจ้าของเท่านั้น)
+══════════════════════════════════════════════ */
+function renderManage() {
+  if (state.userId !== OWNER_ID) return;
+  const el = $('page-manage');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="page-title">⚙️ <span>จัดการ</span>รายการ</div>
+    <div class="page-sub">แก้ไขหรือลบรายการวันนี้</div>
+    <div id="manage-list">
+      <div class="shimmer" style="height:80px;border-radius:14px;margin-bottom:10px;"></div>
+      <div class="shimmer" style="height:80px;border-radius:14px;margin-bottom:10px;"></div>
+    </div>`;
+  loadManageRecords();
+}
+
+async function loadManageRecords() {
+  const el = $('manage-list');
+  if (!el) return;
+  try {
+    const r = await api_ownerGetTodayRecords(state.userId);
+    if (!r?.records?.length) {
+      el.innerHTML = `<div class="card"><div class="empty-state"><span class="empty-icon">📭</span>ไม่มีรายการวันนี้ค่ะ</div></div>`;
+      return;
+    }
+    el.innerHTML = r.records.map(rec => {
+      const isVoided  = rec.status === 'ยกเลิก' || rec.status === 'แก้ไข';
+      const col       = SVC_COLORS[rec.service] || '#999';
+      const badgeClass = rec.payment === 'Member' ? 'badge-member' :
+                         rec.payment === 'Transfer' || rec.payment === 'Credit' ? 'badge-credit' : 'badge-cash';
+      const badgeLabel = rec.payment === 'Member' ? 'เมม' :
+                         rec.payment === 'Transfer' ? 'โอน' :
+                         rec.payment === 'Credit'   ? 'รูด' : 'สด';
+      return `
+        <div class="manage-item ${isVoided ? 'voided' : ''}">
+          <div class="tx-dot" style="background:${col}"></div>
+          <div class="tx-info">
+            <div class="tx-svc">${rec.service} <small style="color:var(--text3)">${rec.staffName}</small></div>
+            <div class="tx-meta">${rec.time} ${rec.status ? '· ' + rec.status : ''}</div>
+          </div>
+          <div class="tx-right">
+            <span class="tx-badge ${badgeClass}">${badgeLabel}</span>
+            <div class="tx-price">฿${Number(rec.price).toLocaleString()}</div>
+          </div>
+          ${!isVoided ? `
+          <div class="manage-actions">
+            <button class="btn-manage-edit" onclick="showEditModal(${rec.rowId},'${rec.service}',${rec.price},'${rec.payment}')">✏️ แก้ไข</button>
+            <button class="btn-manage-del"  onclick="confirmDelete(${rec.rowId},'${rec.service}',${rec.price})">🗑️ ลบ</button>
+          </div>` : ''}
+        </div>`;
+    }).join('');
+  } catch(err) {
+    el.innerHTML = `<div class="card"><div style="color:var(--red);text-align:center;padding:20px;">${err.message}</div></div>`;
+  }
+}
+
+// ── Modal แก้ไข ──────────────────────────────────────────────
+function showEditModal(rowId, service, price, payment) {
+  const existing = $('edit-modal-bg');
+  if (existing) existing.remove();
+
+  const div = document.createElement('div');
+  div.id = 'edit-modal-bg';
+  div.className = 'modal-bg show';
+  div.innerHTML = `
+    <div class="modal">
+      <div class="modal-handle"></div>
+      <div class="modal-title">✏️ แก้ไขรายการ</div>
+      <div class="modal-sub">${service} · รายการ #${rowId}</div>
+      <div class="form-group">
+        <label class="form-label">ราคาใหม่ (บาท)</label>
+        <input class="form-input form-input-lg" id="edit-price" type="number"
+          inputmode="numeric" value="${price}" readonly onfocus="this.removeAttribute('readonly')">
+      </div>
+      <div class="form-group">
+        <label class="form-label">ช่องทางชำระ</label>
+        <div class="pay-chips" id="edit-pay-chips">
+          ${[{id:'Cash',label:'💵 สด'},{id:'Transfer',label:'📲 โอน'},{id:'Credit',label:'💳 รูด'},{id:'Member',label:'🏷️ เมมเบอร์'}]
+            .map(p => `<button class="pay-chip ${p.id===payment?'active':''}" data-pay="${p.id}"
+              onclick="selectEditPay(this)">${p.label}</button>`).join('')}
+        </div>
+      </div>
+      <button class="btn-primary" id="edit-confirm-btn" onclick="doEditRecord(${rowId})">✅ ยืนยันแก้ไข</button>
+      <div style="height:8px"></div>
+      <button class="btn-secondary" onclick="$('edit-modal-bg').remove()">ยกเลิก</button>
+    </div>`;
+  document.body.appendChild(div);
+}
+
+function selectEditPay(btn) {
+  document.querySelectorAll('#edit-pay-chips .pay-chip')
+    .forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+async function doEditRecord(rowId) {
+  const newPrice   = parseFloat($('edit-price')?.value) || 0;
+  const newPayment = document.querySelector('#edit-pay-chips .pay-chip.active')?.getAttribute('data-pay') || 'Cash';
+  if (newPrice <= 0) { showToast('กรุณากรอกราคาค่ะ', 'error'); return; }
+
+  const btn = $('edit-confirm-btn');
+  btn.disabled = true; btn.textContent = '⏳ กำลังแก้ไข...';
+
+  try {
+    const result = await api_ownerUpdateRecord({
+      userId:     state.userId,
+      staffName:  state.staffName,
+      rowId,
+      newPrice,
+      newPayment,
+    });
+    if (result.ok === false) throw new Error(result.error);
+    showToast('✅ แก้ไขสำเร็จค่ะ', 'success');
+    $('edit-modal-bg')?.remove();
+    loadManageRecords();
+    loadTodayRecords();
+  } catch(err) {
+    showToast('❌ ' + err.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '✅ ยืนยันแก้ไข';
+  }
+}
+
+// ── ยืนยันลบ ─────────────────────────────────────────────────
+function confirmDelete(rowId, service, price) {
+  const existing = $('del-modal-bg');
+  if (existing) existing.remove();
+
+  const div = document.createElement('div');
+  div.id = 'del-modal-bg';
+  div.className = 'modal-bg show';
+  div.innerHTML = `
+    <div class="modal">
+      <div class="modal-handle"></div>
+      <div class="modal-title" style="color:var(--red)">🗑️ ยืนยันลบรายการ</div>
+      <div class="modal-sub">${service} · ฿${Number(price).toLocaleString()}</div>
+      <div style="background:var(--red-bg);border-radius:var(--radius-sm);padding:14px;margin:16px 0;font-size:13px;color:var(--red);font-weight:600;">
+        ⚠️ รายการเดิมจะถูก void และบันทึก log ไว้<br>หากจ่ายด้วยเมมเบอร์จะคืนเครดิตอัตโนมัติค่ะ
+      </div>
+      <button class="btn-primary" id="del-confirm-btn"
+        style="background:linear-gradient(135deg,#EF4444,#DC2626);box-shadow:0 4px 16px rgba(239,68,68,0.3);"
+        onclick="doDeleteRecord(${rowId})">🗑️ ยืนยันลบ</button>
+      <div style="height:8px"></div>
+      <button class="btn-secondary" onclick="$('del-modal-bg').remove()">ยกเลิก</button>
+    </div>`;
+  document.body.appendChild(div);
+}
+
+async function doDeleteRecord(rowId) {
+  const btn = $('del-confirm-btn');
+  btn.disabled = true; btn.textContent = '⏳ กำลังลบ...';
+  try {
+    const result = await api_ownerDeleteRecord({
+      userId:    state.userId,
+      staffName: state.staffName,
+      rowId,
+    });
+    if (result.ok === false) throw new Error(result.error);
+    showToast('✅ ลบรายการสำเร็จค่ะ', 'success');
+    $('del-modal-bg')?.remove();
+    loadManageRecords();
+    loadTodayRecords();
+  } catch(err) {
+    showToast('❌ ' + err.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '🗑️ ยืนยันลบ';
+  }
 }
