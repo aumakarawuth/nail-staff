@@ -552,24 +552,9 @@ function updateCommPreview() {
 /* ══════════════════════════════════════════════
    submitRecord — บันทึก memberCode + memberName
 ══════════════════════════════════════════════ */
-async function submitRecord() {
-  const svc   = state.selectedService;
-  const price = parseFloat($('rec-price')?.value) || 0;
-  const note  = $('rec-note')?.value.trim() || '';
-  if (!svc)       { showToast('เลือกบริการก่อนนะคะ','error'); return; }
-  if (price <= 0) { showToast('กรุณากรอกราคาค่ะ','error');    return; }
-
-  if (state.selectedPayment === 'Member') {
-    if (!state.recordMember) {
-      showToast('กรุณาค้นหาสมาชิกก่อนค่ะ','error'); return;
-    }
-    if (state.recordMember.balance < price) {
-      showToast('ยอดเมมเบอร์ไม่พอค่ะ','error'); return;
-    }
-  }
-
+async function doSubmitRecord(svc, price, note) {
   const btn = $('rec-submit-btn');
-  btn.disabled = true; btn.textContent = '⏳ กำลังบันทึก...';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ กำลังบันทึก...'; }
 
   const now     = new Date();
   const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
@@ -612,8 +597,7 @@ async function submitRecord() {
     }
 
     const memberMsg = state.selectedPayment === 'Member' && state.recordMember
-      ? ` (ตัด ${state.recordMember.name})`
-      : '';
+      ? ` (ตัด ${state.recordMember.name})` : '';
     showToast(`✅ บันทึก ${svc} ฿${price.toLocaleString()}${memberMsg} แล้วค่ะ`, 'success');
 
     if (state.selectedPayment === 'Member' && state.recordMember) {
@@ -629,9 +613,9 @@ async function submitRecord() {
   } catch(err) {
     state.todayRecs = state.todayRecs.filter(r => !r._optimistic);
     if (state.page === 'home') refreshHomeStats();
-    showToast('❌ '+(err.message||'เกิดข้อผิดพลาด'), 'error');
+    showToast('❌ ' + (err.message || 'เกิดข้อผิดพลาด'), 'error');
   } finally {
-    btn.disabled = false; btn.textContent = '💾 บันทึกรายการ';
+    if (btn) { btn.disabled = false; btn.textContent = '💾 บันทึกรายการ'; }
   }
 }
 
@@ -1553,3 +1537,106 @@ document.addEventListener('visibilitychange', () => {
     startPolling();
   }
 });
+
+
+
+
+function showConfirmModal(onConfirm) {
+  const svc     = state.selectedService;
+  const price   = parseFloat($('rec-price')?.value) || 0;
+  const payment = state.selectedPayment;
+  const note    = $('rec-note')?.value.trim() || '';
+
+  const payLabel = { Cash: '💵 สด', Transfer: '📲 โอน', Credit: '💳 รูด', Member: '🏷️ เมมเบอร์' }[payment] || payment;
+  const svcColor = SVC_COLORS[svc] || '#FF2D78';
+
+  // คำนวณค่าคอม
+  const rate = COMMISSION_RATE[svc] || 0.10;
+  const comm = Math.round(price * rate);
+
+  // credit fee
+  let feeHtml = '';
+  if (payment === 'Credit' && price < 2000) {
+    const fee   = Math.round(price * 0.03);
+    const total = price + fee;
+    feeHtml = `
+      <div style="background:#FEF3DC;border-radius:10px;padding:10px 14px;margin-top:8px;font-size:12px;color:#B45309;font-weight:600;">
+        💳 บวกเพิ่ม 3% = +฿${fee.toLocaleString()} → เรียกเก็บ ฿${total.toLocaleString()}
+      </div>`;
+  }
+
+  // member info
+  let memberHtml = '';
+  if (payment === 'Member' && state.recordMember) {
+    const after = state.recordMember.balance - price;
+    memberHtml = `
+      <div style="background:#EFF6FF;border-radius:10px;padding:10px 14px;margin-top:8px;font-size:12px;color:#2563EB;font-weight:600;">
+        🏷️ ${state.recordMember.name} · ฿${state.recordMember.balance.toLocaleString()} → ฿${after.toLocaleString()}
+      </div>`;
+  }
+
+  const existing = $('confirm-modal-bg');
+  if (existing) existing.remove();
+
+  const div = document.createElement('div');
+  div.id = 'confirm-modal-bg';
+  div.className = 'modal-bg show';
+  div.innerHTML = `
+    <div class="modal">
+      <div class="modal-handle"></div>
+      <div class="modal-title">ยืนยันการบันทึก?</div>
+      <div class="modal-sub">ตรวจสอบรายการให้ถูกต้องก่อนกดยืนยันค่ะ</div>
+
+      <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:16px;margin-bottom:4px;">
+
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <div style="width:12px;height:12px;border-radius:3px;background:${svcColor};flex-shrink:0;"></div>
+          <div style="font-size:20px;font-weight:700;color:var(--text);">${svc}</div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-size:13px;color:var(--text3);">ราคา</span>
+          <span style="font-size:24px;font-weight:700;font-family:var(--ff-mono);color:${svcColor};">฿${price.toLocaleString()}</span>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-size:13px;color:var(--text3);">ช่องทางชำระ</span>
+          <span style="font-size:14px;font-weight:700;color:var(--text);">${payLabel}</span>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:13px;color:var(--text3);">ค่าคอม</span>
+          <span style="font-size:14px;font-weight:700;color:var(--pink);">฿${comm.toLocaleString()}</span>
+        </div>
+
+        ${note ? `
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--text3);">
+          📝 ${note}
+        </div>` : ''}
+
+        ${feeHtml}
+        ${memberHtml}
+      </div>
+
+      <button class="btn-primary" id="confirm-submit-btn"
+        style="margin-top:16px;" onclick="handleConfirm()">
+        ✅ ยืนยัน บันทึกเลยค่ะ
+      </button>
+      <div style="height:8px"></div>
+      <button class="btn-secondary" onclick="$('confirm-modal-bg').remove()">
+        ← แก้ไข
+      </button>
+    </div>`;
+  document.body.appendChild(div);
+
+  // เก็บ callback
+  window._confirmCallback = onConfirm;
+}
+
+function handleConfirm() {
+  $('confirm-modal-bg')?.remove();
+  if (window._confirmCallback) {
+    window._confirmCallback();
+    window._confirmCallback = null;
+  }
+}
