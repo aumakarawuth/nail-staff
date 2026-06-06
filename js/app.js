@@ -1640,3 +1640,19 @@ function handleConfirm() {
     window._confirmCallback = null;
   }
 }
+
+
+async function submitRecord() {
+  const svc   = state.selectedService;
+  const price = parseFloat($('rec-price')?.value) || 0;
+  const note  = $('rec-note')?.value.trim() || '';
+
+  if (!svc)       { showToast('เลือกบริการก่อนนะคะ','error'); return; }
+  if (price <= 0) { showToast('กรุณากรอกราคาค่ะ','error');    return; }
+  if (state.selectedPayment === 'Member') {
+    if (!state.recordMember) { showToast('กรุณาค้นหาสมาชิกก่อนค่ะ','error'); return; }
+    if (state.recordMember.balance < price) { showToast('ยอดเมมเบอร์ไม่พอค่ะ','error'); return; }
+  }
+
+  showConfirmModal(() => doSubmitRecord(svc, price, note));
+}
