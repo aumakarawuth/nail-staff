@@ -3,7 +3,7 @@
    กลยุทธ์: Cache Shell + Network First API
 ═══════════════════════════════════════ */
 
-const CACHE_NAME   = 'nail-staff-v1';
+const CACHE_NAME   = 'nail-staff-v2';
 const SHELL_ASSETS = [
   '/nail-staff/',
   '/nail-staff/index.html',
