@@ -939,15 +939,31 @@ function updateTopupTabPreview() {
   const amount = parseFloat($('topup-tab-amount')?.value) || 0;
   const cfg    = state.config || {};
   const credit = calcCredit(amount, cfg);
-  const bonus  = calcBonus(amount, cfg);   // ← แก้ตรงนี้
+  const bonus  = calcBonus(amount, cfg);
+  const tier   = credit - bonus;
   const el     = $('topup-tab-preview');
   if (!el) return;
   if (amount > 0) {
+    const inTier = tier > amount;
     el.innerHTML = `
       <div class="topup-preview-box">
         <div class="topup-preview-label">เครดิตที่ได้รับ</div>
         <div class="topup-preview-val">฿${credit.toLocaleString()}</div>
-        ${bonus > 0 ? `<div class="topup-preview-bonus">โบนัส +฿${bonus.toLocaleString()}</div>` : ''}
+        <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px;font-size:13px;">
+          <div style="display:flex;justify-content:space-between;color:var(--text3);">
+            <span>จ่าย ฿${amount.toLocaleString()} → ${inTier ? 'tier' : ''}</span>
+            <span>฿${tier.toLocaleString()}</span>
+          </div>
+          ${bonus > 0 ? `
+          <div style="display:flex;justify-content:space-between;color:#10B981;font-weight:700;">
+            <span>🎁 โบนัส Top Up</span>
+            <span>+฿${bonus.toLocaleString()}</span>
+          </div>` : ''}
+          <div style="border-top:1px solid rgba(0,0,0,0.08);padding-top:6px;display:flex;justify-content:space-between;font-weight:700;color:var(--text);">
+            <span>รวมได้รับ</span>
+            <span>฿${credit.toLocaleString()}</span>
+          </div>
+        </div>
       </div>`;
   } else {
     el.innerHTML = '';
