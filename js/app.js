@@ -939,7 +939,7 @@ function updateTopupTabPreview() {
   const amount = parseFloat($('topup-tab-amount')?.value) || 0;
   const cfg    = state.config || {};
   const credit = calcCredit(amount, cfg);
-  const bonus  = credit - amount;
+  const bonus  = calcBonus(amount, cfg);   // ← แก้ตรงนี้
   const el     = $('topup-tab-preview');
   if (!el) return;
   if (amount > 0) {
@@ -1000,8 +1000,9 @@ function resetTopupTab() {
 
 function updateRegTabPreview() {
   const amount = parseFloat($('reg-amount-tab')?.value) || 0;
-  const credit = calcCredit(amount, state.config || {});
-  const bonus  = credit - amount;
+  const cfg    = state.config || {};
+  const credit = calcCredit(amount, cfg);
+  const bonus  = calcBonus(amount, cfg);   // ← แก้ตรงนี้
   const el     = $('reg-tab-preview');
   if (!el) return;
   if (amount > 0) {
@@ -1242,14 +1243,37 @@ async function loadConfig() {
    HELPERS
 ══════════════════════════════════════════════ */
 function calcCredit(amount, cfg) {
+  // คำนวณ base credit จาก tier
+  let base;
   const t20 = cfg.TIER_20K || 27000;
   const t10 = cfg.TIER_10K || 13000;
   const t5  = cfg.TIER_5K  || 6000;
-  if (amount >= 20000) return t20;
-  if (amount >= 10000) return t10;
-  if (amount >= 5000)  return t5;
-  return amount;
+
+  if      (amount >= 20000) base = t20;
+  else if (amount >= 10000) base = t10;
+  else if (amount >= 5000)  base = t5;
+  else                      base = amount;
+
+  // ถ้าไม่ได้อยู่ใน tier → ไม่มีโบนัส
+  if (base === amount) return amount;
+
+  // โบนัสเพิ่มเติม (เปิด/ปิดได้จาก config)
+  const bonusActive = cfg.PROMO_TOPUP_ACTIVE === true || cfg.PROMO_TOPUP_ACTIVE === 'true';
+  const bonus       = bonusActive ? (parseFloat(cfg.BONUS_TOPUP) || 0) : 0;
+
+  return base + bonus;
 }
+
+
+
+function calcBonus(amount, cfg) {
+  const t5  = cfg.TIER_5K  || 6000;
+  const inTier = amount >= 5000;
+  if (!inTier) return 0;
+  const bonusActive = cfg.PROMO_TOPUP_ACTIVE === true || cfg.PROMO_TOPUP_ACTIVE === 'true';
+  return bonusActive ? (parseFloat(cfg.BONUS_TOPUP) || 0) : 0;
+}
+
 
 function closeModal(id) { document.getElementById(id)?.remove(); }
 
