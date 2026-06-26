@@ -23,6 +23,19 @@ self.addEventListener('install', event => {
   );
 });
 
+
+self.addEventListener('install', e => {
+  self.skipWaiting(); // ← activate ทันทีไม่รอ tab เก่าปิด
+});
+
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+    ).then(() => self.clients.claim()) // ← ควบคุม tab ทันที
+  );
+});
+
 /* ── Activate: delete old caches ── */
 self.addEventListener('activate', event => {
   event.waitUntil(
