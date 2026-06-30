@@ -208,7 +208,6 @@ function renderAppShell() {
         <div id="page-record"  class="page"></div>
         <div id="page-member"  class="page"></div>
         <div id="page-summary" class="page"></div>
-        <div id="page-payslip" class="page"></div>
          <div id="page-manage"  class="page"></div>
       </div>
       <nav class="bottom-nav">
@@ -216,7 +215,6 @@ function renderAppShell() {
         <button class="nav-item" id="nav-record"  onclick="goPage('record')"><span class="icon">✏️</span>บันทึกงาน</button>
         <button class="nav-item" id="nav-member"  onclick="goPage('member')"> <span class="icon">💳</span>สมาชิก</button>
         <button class="nav-item" id="nav-summary" onclick="goPage('summary')"><span class="icon">📊</span>สรุปยอด</button>
-        <button class="nav-item" id="nav-payslip" onclick="goPage('payslip')"><span class="icon">🧾</span>สลิปเงินเดือน</button>
         ${state.userId === OWNER_ID ? `<button class="nav-item" id="nav-manage" onclick="goPage('manage')"><span class="icon">⚙️</span>จัดการ</button>` : ''}
       </nav>
     </div>
@@ -257,7 +255,6 @@ function goPage(page) {
     switchMemberTab(_memTab || 'search');
   }
   if (page === 'summary') renderSummary();
-   if (page === 'payslip') renderPayslip();
    if (page === 'manage') renderManage();
 }
 
@@ -1682,169 +1679,6 @@ function handleConfirm() {
     window._confirmCallback();
     window._confirmCallback = null;
   }
-}
-
-
-
-/* ══════════════════════════════════════════════
-   PAYSLIP PAGE — สลิปเงินเดือนรายคน (เฉพาะของตัวเอง)
-══════════════════════════════════════════════ */
-let _payslipPeriod = 'day';
-
-function renderPayslip() {
-  const el = $('page-payslip');
-  if (!el) return;
-
-  const now    = new Date();
-  const DAYS   = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
-  const MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-  const dateStr = `วัน${DAYS[now.getDay()]}ที่ ${now.getDate()} ${MONTHS[now.getMonth()]} ${now.getFullYear()+543}`;
-
-  el.innerHTML = `
-    <div class="page-title">🧾 สลิป<span>เงินเดือน</span></div>
-    <div class="page-sub">${state.staffName} · ออกสลิป ${dateStr}</div>
-
-    <div class="period-tabs">
-      <button class="period-tab ${_payslipPeriod==='day'?'active':''}"   onclick="loadPayslipPeriod('day',this)">วันนี้</button>
-      <button class="period-tab ${_payslipPeriod==='week'?'active':''}"  onclick="loadPayslipPeriod('week',this)">อาทิตย์นี้</button>
-      <button class="period-tab ${_payslipPeriod==='month'?'active':''}" onclick="loadPayslipPeriod('month',this)">เดือนนี้</button>
-    </div>
-
-    <div id="payslip-content">
-      <div class="shimmer" style="height:150px;margin-bottom:14px;border-radius:18px;"></div>
-      <div class="shimmer" style="height:220px;border-radius:18px;"></div>
-    </div>
-  `;
-  loadPayslipPeriod(_payslipPeriod, el.querySelector('.period-tab.active'));
-}
-
-async function loadPayslipPeriod(period, btn) {
-  _payslipPeriod = period;
-  if (btn) {
-    document.querySelectorAll('#page-payslip .period-tab').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-  }
-  const el = $('payslip-content');
-  if (!el) return;
-  el.innerHTML = `<div class="shimmer" style="height:240px;border-radius:18px;"></div>`;
-
-  let data = null;
-  let fromCache = false;
-
-  try {
-    const result = await api_getSummary(state.userId, period);
-    if (result && (result.comm !== undefined || result.byService || result.byServiceDetail)) {
-      data = result;
-    }
-  } catch (e) { /* fallback ด้านล่าง */ }
-
-  if (!data && period === 'day') {
-    // ใช้ข้อมูลจาก local cache วันนี้เป็น fallback
-    const recs = state.todayRecs.filter(r => !['เติมเงินสมาชิก','เปิดเมมเบอร์ใหม่'].includes(r.service));
-    const byService = {};
-    let totalSales = 0, totalComm = 0;
-    const byPayment = { Cash: 0, Transfer: 0, Credit: 0, Member: 0 };
-    recs.forEach(r => {
-      const rate = COMMISSION_RATE[r.service] || 0.1;
-      const c = Math.round(r.price * rate);
-      if (!byService[r.service]) byService[r.service] = { price: 0, count: 0, comm: 0 };
-      byService[r.service].price += r.price;
-      byService[r.service].count += 1;
-      byService[r.service].comm  += c;
-      totalSales += r.price;
-      totalComm  += c;
-      if (byPayment[r.payment] !== undefined) byPayment[r.payment] += r.price;
-    });
-    data = { comm: totalComm, byServiceDetail: byService, count: recs.length, totalSales, byPayment, isFallback: true };
-    fromCache = true;
-  }
-
-  if (!data) {
-    el.innerHTML = `
-      <div class="card" style="text-align:center;padding:32px 20px;">
-        <div style="font-size:40px;margin-bottom:8px;">🔌</div>
-        <div style="font-size:14px;color:var(--red);margin-bottom:6px;">ดึงข้อมูลไม่ได้ค่ะ</div>
-        <div style="font-size:12px;color:var(--text3);">ลองกดรีเฟรช หรือเช็คอินเทอร์เน็ต</div>
-      </div>`;
-    return;
-  }
-
-  renderPayslipResult(data, el, period, fromCache);
-}
-
-function renderPayslipResult(data, el, period, fromCache) {
-  const periodLabel = { day: 'วันนี้', week: 'อาทิตย์นี้', month: 'เดือนนี้' }[period] || period;
-  const comm  = data.comm || 0;
-  const by    = data.byServiceDetail || data.byService || {};
-  const count = data.count !== undefined ? data.count : Object.values(by).reduce((s,v)=>s+(typeof v==='object'?v.count||0:0),0);
-
-  // ยอดขายรวม + ค่าคอมรวม คำนวณจาก by ถ้า total ไม่มา
-  let totalSales = data.totalSales;
-  if (totalSales === undefined) {
-    totalSales = Object.values(by).reduce((s,v)=> s + (typeof v==='object' ? (v.price||0) : (v||0)), 0);
-  }
-
-  const rows = Object.entries(by).map(([svc, val]) => {
-    const price = typeof val === 'object' ? (val.price||0) : val;
-    const cnt   = typeof val === 'object' ? (val.count||0) : '';
-    const c     = typeof val === 'object' && val.comm !== undefined
-                    ? val.comm
-                    : Math.round(price * (COMMISSION_RATE[svc] || 0.1));
-    const col   = SVC_COLORS[svc] || '#999';
-    return `
-      <div class="summary-row">
-        <div class="summary-dot" style="background:${col}"></div>
-        <div class="summary-svc">${svc}${cnt!==''?` <small style="color:var(--text3)">× ${cnt}</small>`:''}</div>
-        <div>
-          <div class="summary-comm">฿${c.toLocaleString()}</div>
-          <div style="font-size:11px;color:var(--text3);text-align:right">ยอดขาย ฿${Number(price).toLocaleString()}</div>
-        </div>
-      </div>`;
-  }).join('');
-
-  // แยกตามช่องทางชำระ (ถ้ามีข้อมูล)
-  let paymentRows = '';
-  if (data.byPayment) {
-    const payLabel = { Cash:'💵 เงินสด', Transfer:'📲 โอน', Credit:'💳 บัตรเครดิต', Member:'🏷️ เมมเบอร์' };
-    paymentRows = Object.entries(data.byPayment)
-      .filter(([,v]) => v > 0)
-      .map(([k,v]) => `
-        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;">
-          <span style="color:var(--text2);">${payLabel[k]||k}</span>
-          <span style="font-family:var(--ff-mono);font-weight:600;color:var(--text);">฿${Number(v).toLocaleString()}</span>
-        </div>`).join('');
-  }
-
-  el.innerHTML = `
-    ${fromCache ? `<div class="fallback-notice">📱 ข้อมูลจาก cache เครื่องนี้ (ยังไม่ sync กับเซิร์ฟเวอร์)</div>` : ''}
-
-    <div class="comm-hero">
-      <div class="comm-hero-label">ค่าคอมที่ได้รับ — ${periodLabel}</div>
-      <div class="comm-hero-val">฿${comm.toLocaleString()}</div>
-      <div class="comm-hero-sub">${count} รายการ · ยอดขายรวม ฿${Number(totalSales).toLocaleString()}</div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">📋 แยกตามบริการ</div>
-      ${rows || `<div class="empty-state"><span class="empty-icon">📭</span>ยังไม่มีรายการค่ะ</div>`}
-    </div>
-
-    ${paymentRows ? `
-    <div class="card">
-      <div class="card-title">💳 แยกตามช่องทางชำระ</div>
-      ${paymentRows}
-    </div>` : ''}
-
-    <div class="card" style="background:var(--pink-pale);border-color:var(--pink-light);">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div>
-          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;">ยอดสุทธิที่ได้รับ</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:2px;">${state.staffName} · ${periodLabel}</div>
-        </div>
-        <div style="font-size:28px;font-weight:700;font-family:var(--ff-mono);color:var(--pink);">฿${comm.toLocaleString()}</div>
-      </div>
-    </div>
-  `;
 }
 
 
